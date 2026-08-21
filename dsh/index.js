@@ -201,7 +201,8 @@ function renderToastPage(opts) {
     return DEFAULT_SOUND;
   })();
 
-  // 合成"叮"的一声：880Hz 基音 + 1760Hz 谐波，快速衰减（无音频文件，零体积）
+  // 合成柔和的"叮"声：660Hz 三角波（圆润）+ 1320Hz 轻谐波（通透），
+  // 12ms 淡入避免爆音，指数自然衰减（无音频文件，零体积）
   function playDing() {
     try {
       var Ctx = window.AudioContext || window.webkitAudioContext;
@@ -209,25 +210,29 @@ function renderToastPage(opts) {
       var ctx = new Ctx();
       var now = ctx.currentTime;
 
+      // 主音：三角波温暖圆润，低于原 880Hz 的尖锐感
       var osc1 = ctx.createOscillator();
       var gain1 = ctx.createGain();
-      osc1.type = 'sine';
-      osc1.frequency.value = 880;
-      gain1.gain.setValueAtTime(0.35, now);
-      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+      osc1.type = 'triangle';
+      osc1.frequency.value = 660;
+      gain1.gain.setValueAtTime(0.0001, now);
+      gain1.gain.linearRampToValueAtTime(0.22, now + 0.012); // 淡入消 click
+      gain1.gain.exponentialRampToValueAtTime(0.0001, now + 0.8); // 自然衰减
       osc1.connect(gain1).connect(ctx.destination);
       osc1.start(now);
-      osc1.stop(now + 0.5);
+      osc1.stop(now + 0.82);
 
+      // 轻谐波：低音量，增加通透感，先于主音衰减
       var osc2 = ctx.createOscillator();
       var gain2 = ctx.createGain();
       osc2.type = 'sine';
-      osc2.frequency.value = 1760;
-      gain2.gain.setValueAtTime(0.12, now);
-      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+      osc2.frequency.value = 1320;
+      gain2.gain.setValueAtTime(0.0001, now);
+      gain2.gain.linearRampToValueAtTime(0.07, now + 0.012);
+      gain2.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
       osc2.connect(gain2).connect(ctx.destination);
       osc2.start(now);
-      osc2.stop(now + 0.3);
+      osc2.stop(now + 0.47);
     } catch (e) { /* 音频不可用则静默 */ }
   }
 
