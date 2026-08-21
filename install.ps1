@@ -133,6 +133,8 @@ if ($patch -notmatch 'id:\s*task-complete-notifier') {
     laterLabel: '稍后'
     soundEnabled: true
     soundToggleTitle: '音效开关'
+    soundFile: ''
+    soundVolume: 1.0
 "@
   Add-Content -Path $patchPath -Value $block -Encoding UTF8
   Write-Host "        挂载行 + 默认 config 已写入" -ForegroundColor Green
@@ -156,7 +158,7 @@ if (-not $pnpm) {
 Write-Host "[5/5] 安装完成！" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  下一步：重启 DSH Desktop。"
-Write-Host "  验证：日志出现 '[task-notifier] host half mounted (v7: env ...)'"
+Write-Host "  验证：日志出现 '[task-notifier] host half mounted (v9: env ...)'"
 Write-Host "       跑一个任务到结束，右下角应弹出带标题+输入框的置顶卡片。"
 Write-Host ""
 Write-Host "  卸载：删除 $targetDir，并从 profile 的 package.json（dependencies/bundles）"

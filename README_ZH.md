@@ -2,7 +2,7 @@
 
 [English](./README.md) | 中文
 
-DeepSeek Harness 任务完成通知插件：当 agent 一个任务**真正结束**时，在屏幕右下角弹出一张**置顶**的深色圆角卡片。全程无音频，纯 host 半插件，零依赖。
+DeepSeek Harness 任务完成通知插件：当 agent 一个任务**真正结束**时，在屏幕右下角弹出一张**置顶**的深色圆角卡片。纯 host 半插件，零运行时依赖，内置「叮」声（也可换自己的音效文件）。
 
 > 适用于 DSH Desktop（Electron 桌面端）。浏览器里用 `dsh web` 的场景会降级为 host 日志（见 FAQ）。
 
@@ -17,7 +17,7 @@ DeepSeek Harness 任务完成通知插件：当 agent 一个任务**真正结束
 - **排队不覆盖（v1.1）**：通知一次只显示一个。当前卡片还在（你可能正在输入）时，新完成的任务排队等待，你输到一半的内容绝不会被新通知冲掉；提交或关闭当前卡片后自动弹出下一个
 - **输入自动聚焦**：卡片弹出即聚焦输入框，可直接打字
 - **跳过子代理**：子代理（subagent）任务结束不通知，只通知主任务
-- **🔔 可开关的「叮」声提示（v1.4）**：卡片弹出时播放 Web Audio 合成的"叮"声（无音频文件）；右上角 🔊/🔕 按钮一键开关，选择跨通知持久（localStorage）
+- **🔔 可开关的「叮」声、自定义音效与音量（v1.4–v1.5）**：卡片弹出时播放 Web Audio 合成的"叮"声；右上角 🔊/🔕 按钮一键开关，选择跨通知持久（localStorage）。`soundFile` 可换成任意 mp3/wav/ogg/m4a 音效文件，`soundVolume`（0–1）控制音量——带 0.1s 平滑渐入并提前 0.1s 触发，绝不显得延迟
 - **可配置**：文案、延迟、冷却、自动关闭时间、占位符、按钮文字都可通过 `cordis.patch.yml` 覆盖
 
 ## 🖼️ 通知卡片
@@ -63,12 +63,12 @@ DSH 的 agent 状态机：`running`（任务执行中，包括 goal 多轮任务
 
 ### 方式一：下载 tarball 安装（推荐）
 
-1. 从 [Releases](https://github.com/Kreatur-ECHO/dsh-task-complete-notifier/releases) 下载 `dsh-task-complete-notifier-1.3.0.tgz`
+1. 从 [Releases](https://github.com/Kreatur-ECHO/dsh-task-complete-notifier/releases) 下载 `dsh-task-complete-notifier-1.5.2.tgz`
 
 2. 用 DSH CLI 安装（`<profile>` 换成你的 profile 名，如 `desktop`）：
 
    ```powershell
-   dsh plugin --profile desktop add file:D:\Downloads\dsh-task-complete-notifier-1.3.0.tgz
+   dsh plugin --profile desktop add file:D:\Downloads\dsh-task-complete-notifier-1.5.2.tgz
    ```
 
    该命令会自动协调 `dsh.profile.bundles` 并安装依赖。
@@ -83,7 +83,7 @@ DSH 的 agent 状态机：`running`（任务执行中，包括 goal 多轮任务
 # 解压 tarball 后，在解压目录里运行：
 powershell -ExecutionPolicy Bypass -File install.ps1
 # 或直接从 tarball 安装 / 指定 profile：
-powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\dsh-task-complete-notifier-1.3.0.tgz
+powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\dsh-task-complete-notifier-1.5.2.tgz
 ```
 
 ### 方式三：手动安装
@@ -116,7 +116,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\ds
 重启后日志出现：
 
 ```
-[task-notifier] host half mounted (v7: env webServer=true agents=true electron=true port=61997)
+[task-notifier] host half mounted (v9: env webServer=true agents=true electron=true port=61997)
 ```
 
 跑一个任务到结束，右下角应弹出通知卡片。
@@ -126,7 +126,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\ds
 所有依赖都是**可选的**——最小部署下插件也能激活并优雅降级。挂载日志就是内置的环境自检：
 
 ```
-[task-notifier] host half mounted (v7: env webServer=true agents=true electron=true port=61997)
+[task-notifier] host half mounted (v9: env webServer=true agents=true electron=true port=61997)
 ```
 
 | 能力 | 用途 | 缺失时 |
@@ -160,6 +160,25 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\ds
     soundVolume: 1.0                      # 音效音量 0~1
 ```
 
+### 🎛️ 完整配置参考
+
+所有配置键都放在插件挂载行的 `config:` 下。**全部可选**——省略任意键即使用默认值。
+
+| 键 | 类型 | 默认值 | 作用 |
+|---|---|---|---|
+| `title` | string | `'✓ Task Completed'` | 卡片顶部标题文字 |
+| `body` | string | `'The current DeepSeek Harness task has finished. Please proceed to the next step.'` | 正文 |
+| `settleMs` | number | `3000` | idle 边沿后等待多久才弹卡片——防 goal 回合误报 |
+| `cooldownMs` | number | `10000` | 两次通知的最小间隔 |
+| `autoCloseMs` | number | `60000` | 卡片自动关闭时间 |
+| `placeholder` | string | `'输入下一步指令，Enter 发送…'` | 输入框占位符 |
+| `sendLabel` | string | `'发送'` | 发送按钮文字 |
+| `laterLabel` | string | `'稍后'` | 关闭按钮文字 |
+| `soundEnabled` | boolean | `true` | 音效缺省状态；卡片上的 🔊/🔕 按钮可覆盖并持久化 |
+| `soundToggleTitle` | string | `'音效开关'` | 音效按钮提示 |
+| `soundFile` | string | `''` | 自定义音效文件的绝对路径（mp3/wav/ogg/m4a）；留空 = 内置「叮」声 |
+| `soundVolume` | number | `1.0` | 音效音量，`0`–`1`（如 `0.5` = 一半） |
+
 ### 🔔 自定义音效
 
 默认播放内置合成的「叮」声。你可以换成**自己的音频文件**——把 `soundFile` 设为任意 Chromium 支持的音频的绝对路径（mp3 / wav / ogg / m4a …）：
@@ -172,6 +191,16 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\ds
 ```
 
 host 半通过同源的 `/task-notifier/sound` 路由（loopback 栅栏内）把文件 serve 给卡片播放。`soundFile` 留空则回退到内置「叮」声。音效以 0.1s 平滑渐入，并提前 0.1s 触发，渐入结束时正好达到全音量、不显得延迟。
+
+#### 🔊 音量
+
+`soundVolume` 把音量从 `0`（静音）缩放到 `1`（最大）。设为 `0.5` 即一半音量——默认「叮」声或自定义音效太响时很实用。它对**内置「叮」声和自定义 `soundFile` 都生效**：
+
+```yaml
+- id: task-complete-notifier
+  config:
+    soundVolume: 0.5      # 50% 音量
+```
 
 ## ❓ FAQ
 
@@ -204,6 +233,9 @@ A：两条插件路由（`/task-notifier/toast`、`/task-notifier/input`）都�
 | v4 | host 半 + `agent/status` + Electron 置顶卡片窗口 | ✅ 时机精确 + 自定义卡片 + 置顶 |
 | v5 | v4 + 输入框 + 通知队列 | ✅ 卡片内直接下达下一条指令；多任务结束排队不覆盖 |
 | v6 | v5 + 卡片显示对话任务标题 | ✅ 一眼看出哪个任务完成（`session/title` 折叠） |
+| v7 | v6 + 「叮」声 + 卡片内开关 | ✅ 有声提示；开关跨通知持久 |
+| v8 | v7 + 柔化「叮」声（660Hz 三角波 + 渐入） | ✅ 悦耳不刺耳 |
+| v9 | v8 + 自定义音效文件 + `soundVolume` + 提前 0.1s 触发 | ✅ 用自己的音频、音量 0–1、无感知延迟 |
 
 ## 📄 License
 

@@ -2,7 +2,7 @@
 
 English | [中文](./README_ZH.md)
 
-A DeepSeek Harness plugin that pops up a **topmost** dark rounded toast card in the bottom-right corner of the screen when an agent task **truly finishes**. No audio, host-half only, zero dependencies.
+A DeepSeek Harness plugin that pops up a **topmost** dark rounded toast card in the bottom-right corner of the screen when an agent task **truly finishes**. Host-half only, zero runtime dependencies, with a built-in ding (or your own sound file).
 
 > Made for DSH Desktop (Electron). Under plain `dsh web` (browser) it degrades to host logs (see FAQ).
 
@@ -17,7 +17,7 @@ A DeepSeek Harness plugin that pops up a **topmost** dark rounded toast card in 
 - **Queue, never overwrite (v1.1)**: toasts show one at a time. A new completion queues behind the current toast, so an instruction you're typing is never wiped by the next toast — when you submit or dismiss, the next one appears
 - **Focuses for typing**: the toast focuses its input box on show, so you can start typing immediately
 - **Skips subagents**: only notifies when the main task finishes
-- **🔔 Ding sound with a toggle (v1.4)**: the toast plays a synthesized "ding" (Web Audio, no audio file) when it appears; a 🔊/🔕 button in the top-right corner toggles it, and your choice persists across toasts (localStorage)
+- **🔔 Ding sound with a toggle, custom file & volume (v1.4–v1.5)**: plays a synthesized "ding" (Web Audio) when it appears; a 🔊/🔕 button in the top-right corner toggles it and persists (localStorage). Set `soundFile` to any mp3/wav/ogg/m4a to play your own sound, `soundVolume` (0–1) to control loudness — with a 0.1s fade-in that starts 0.1s early so it never feels delayed
 - **Configurable**: text, settle delay, cooldown, auto-close, placeholder, labels — all via `cordis.patch.yml`
 
 ## 🖼️ The toast
@@ -63,12 +63,12 @@ Pitfalls we hit along the way (see [Development notes](#-development-notes)):
 
 ### Option 1: tarball (recommended)
 
-1. Download `dsh-task-complete-notifier-1.3.0.tgz` from [Releases](https://github.com/Kreatur-ECHO/dsh-task-complete-notifier/releases)
+1. Download `dsh-task-complete-notifier-1.5.2.tgz` from [Releases](https://github.com/Kreatur-ECHO/dsh-task-complete-notifier/releases)
 
 2. Install with the DSH CLI (`<profile>` is your profile name, e.g. `desktop`):
 
    ```powershell
-   dsh plugin --profile desktop add file:D:\Downloads\dsh-task-complete-notifier-1.3.0.tgz
+   dsh plugin --profile desktop add file:D:\Downloads\dsh-task-complete-notifier-1.5.2.tgz
    ```
 
    The command reconciles `dsh.profile.bundles` and installs dependencies for you.
@@ -83,7 +83,7 @@ The bundled `install.ps1` does the whole manual install for you — copies the p
 # extract the tarball, then inside the extracted folder:
 powershell -ExecutionPolicy Bypass -File install.ps1
 # or from a tarball directly / another profile:
-powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\dsh-task-complete-notifier-1.3.0.tgz
+powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\dsh-task-complete-notifier-1.5.2.tgz
 ```
 
 ### Option 3: manual install
@@ -116,7 +116,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\ds
 After restart, the log shows:
 
 ```
-[task-notifier] host half mounted (v7: env webServer=true agents=true electron=true port=61997)
+[task-notifier] host half mounted (v9: env webServer=true agents=true electron=true port=61997)
 ```
 
 Run a task to completion — the toast card should appear in the bottom-right corner.
@@ -126,7 +126,7 @@ Run a task to completion — the toast card should appear in the bottom-right co
 Every dependency is **optional** — the plugin activates even in a minimal deployment and degrades gracefully. Its mount log is a built-in environment self-check:
 
 ```
-[task-notifier] host half mounted (v7: env webServer=true agents=true electron=true port=61997)
+[task-notifier] host half mounted (v9: env webServer=true agents=true electron=true port=61997)
 ```
 
 | Capability | Used for | When missing |
@@ -160,6 +160,25 @@ Add `config` to the plugin's mount row in your profile's `cordis.patch.yml` (id-
     soundVolume: 1.0                      # sound volume 0~1
 ```
 
+### 🎛️ Full configuration reference
+
+Every key lives under `config:` in the plugin's mount row. **All keys are optional** — omit any key to use its default.
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `title` | string | `'✓ Task Completed'` | Title text at the top of the card |
+| `body` | string | `'The current DeepSeek Harness task has finished. Please proceed to the next step.'` | Body text |
+| `settleMs` | number | `3000` | Wait after the `idle` edge before showing the card — guards against goal-round false positives |
+| `cooldownMs` | number | `10000` | Minimum gap between two toasts |
+| `autoCloseMs` | number | `60000` | Auto-close timeout for the card |
+| `placeholder` | string | `'输入下一步指令，Enter 发送…'` | Input box placeholder |
+| `sendLabel` | string | `'发送'` | Submit button label |
+| `laterLabel` | string | `'稍后'` | Dismiss button label |
+| `soundEnabled` | boolean | `true` | Default sound state; the card's 🔊/🔕 button overrides it and persists |
+| `soundToggleTitle` | string | `'音效开关'` | Tooltip for the sound button |
+| `soundFile` | string | `''` | Absolute path to your own sound file (mp3/wav/ogg/m4a); empty = built-in ding |
+| `soundVolume` | number | `1.0` | Sound volume, `0`–`1` (e.g. `0.5` = half volume) |
+
 ### 🔔 Custom sound
 
 By default the toast plays a built-in synthesized "ding". You can replace it with **your own audio file** — set `soundFile` to an absolute path of any Chromium-supported audio (mp3 / wav / ogg / m4a …):
@@ -172,6 +191,16 @@ By default the toast plays a built-in synthesized "ding". You can replace it wit
 ```
 
 The host half serves that file to the card over the same-origin `/task-notifier/sound` route (loopback-fenced). Leave `soundFile` empty to fall back to the built-in ding. The sound fades in over 0.1s and starts 0.1s early so the fade doesn't feel delayed.
+
+#### 🔊 Volume
+
+`soundVolume` scales loudness from `0` (silent) to `1` (full). Use `0.5` for half volume — handy when the default ding or your custom sound is too loud. It applies to **both** the built-in ding and a custom `soundFile`:
+
+```yaml
+- id: task-complete-notifier
+  config:
+    soundVolume: 0.5      # 50% volume
+```
 
 ## ❓ FAQ
 
@@ -204,6 +233,9 @@ A: Both plugin routes (`/task-notifier/toast`, `/task-notifier/input`) sit behin
 | v4 | Host half + `agent/status` + Electron topmost card window | ✅ precise + custom card + topmost |
 | v5 | v4 + reply input box + toast queue | ✅ type the next instruction right in the toast; completions queue instead of overwriting |
 | v6 | v5 + conversation title on the toast | ✅ shows which task finished (`session/title` fold) |
+| v7 | v6 + ding sound with per-card toggle | ✅ audible cue; toggle persists across toasts |
+| v8 | v7 + soften the ding (660Hz triangle + fade-in) | ✅ pleasant, not harsh |
+| v9 | v8 + custom sound file + `soundVolume` + 0.1s early trigger | ✅ your own audio, volume 0–1, no perceived delay |
 
 ## 📄 License
 
