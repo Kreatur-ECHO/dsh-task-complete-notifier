@@ -62,19 +62,30 @@ Pitfalls we hit along the way (see [Development notes](#-development-notes)):
 
 ### Option 1: tarball (recommended)
 
-1. Download `dsh-task-complete-notifier-1.1.0.tgz` from [Releases](https://github.com/Kreatur-ECHO/dsh-task-complete-notifier/releases)
+1. Download `dsh-task-complete-notifier-1.3.0.tgz` from [Releases](https://github.com/Kreatur-ECHO/dsh-task-complete-notifier/releases)
 
 2. Install with the DSH CLI (`<profile>` is your profile name, e.g. `desktop`):
 
    ```powershell
-   dsh plugin --profile desktop add file:D:\Downloads\dsh-task-complete-notifier-1.1.0.tgz
+   dsh plugin --profile desktop add file:D:\Downloads\dsh-task-complete-notifier-1.3.0.tgz
    ```
 
    The command reconciles `dsh.profile.bundles` and installs dependencies for you.
 
 3. Restart DSH Desktop.
 
-### Option 2: manual install
+### Option 2: one-command install script (auto-configures everything)
+
+The bundled `install.ps1` does the whole manual install for you — copies the plugin into `~/.dsh/plugins/`, registers it in the profile's `package.json` (dependency + bundle, idempotent), writes the mount row + default config into `cordis.patch.yml`, runs `pnpm install`, and prints the restart reminder:
+
+```powershell
+# extract the tarball, then inside the extracted folder:
+powershell -ExecutionPolicy Bypass -File install.ps1
+# or from a tarball directly / another profile:
+powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\dsh-task-complete-notifier-1.3.0.tgz
+```
+
+### Option 3: manual install
 
 1. Extract the tarball anywhere (e.g. `C:\Users\<you>\.dsh\plugins\dsh-task-complete-notifier`)
 
@@ -104,10 +115,28 @@ Pitfalls we hit along the way (see [Development notes](#-development-notes)):
 After restart, the log shows:
 
 ```
-[task-notifier] host half mounted (v5: agent/status + input-capable topmost card + queue)
+[task-notifier] host half mounted (v7: env webServer=true agents=true electron=true port=61997)
 ```
 
 Run a task to completion — the toast card should appear in the bottom-right corner.
+
+## 🧩 Environment & compatibility
+
+Every dependency is **optional** — the plugin activates even in a minimal deployment and degrades gracefully. Its mount log is a built-in environment self-check:
+
+```
+[task-notifier] host half mounted (v7: env webServer=true agents=true electron=true port=61997)
+```
+
+| Capability | Used for | When missing |
+|---|---|---|
+| `agent/status` event (host) | completion detection | always present in DSH — required in practice |
+| `webServer` service | `/task-notifier/*` routes | routes skipped; toast degrades to host logs |
+| `agents` service + `agent.followup` | typing instructions into the toast | input box hidden from the card; detection still works |
+| Electron (`desktopRuntime`) | topmost card window | toast degrades to host logs (plain `dsh web`) |
+| `session/title` events | task title on the card | title row simply hidden |
+
+Runtime requirements: **Node ≥ 20**, DSH with the agent loop (rc.6+ recommended for `agent.followup`). Zero runtime npm dependencies.
 
 ## ⚙️ Configuration
 

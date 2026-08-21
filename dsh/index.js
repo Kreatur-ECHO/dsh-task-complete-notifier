@@ -1,28 +1,41 @@
-// dsh-task-complete-notifier — host half (v6: toast + next-step input + task title)
+// dsh-task-complete-notifier — host half (v7: toast + input + task title + degraded-compatible)
 //
-// 检测信号（与 v4/v5 相同）：agent/status 事件 running→idle 边沿 + 3 秒确认，
-// 任务真正结束时触发。
+// 检测信号：agent/status 事件 running→idle 边沿 + 3 秒确认，任务真正结束时触发。
 //
-// v5 新功能：通知卡片底部带输入框，可直接输入下一条指令——
-// 提交后经插件的 HTTP 路由调用 agent.followup() 注入该会话，用户
-// 无需打开 DSH 界面即可继续指挥 agent。若 agent 正在运行，指令自动
-// 排队到下一个 turn 执行。
+// 功能：右下角置顶卡片显示对话任务标题（session/title 折叠）+ 底部输入框
+// 直接下达下一条指令（agent.followup 注入）。多任务同时结束走「一次一个」
+// 队列，输入内容不会被新通知覆盖。
 //
-// 多任务同时结束的覆盖问题：通知窗口改为「一次一个」的队列——
-// 当前窗口还在（用户可能正在输入）时，新通知入队等待；用户提交
-// 或关闭当前窗口后才显示下一个。输入到一半的内容不会被新通知打断。
-//
-// v6 新功能：卡片标题下方显示该对话的任务标题（session/title 事件
-// 折叠的最新标题），一眼看出是哪个任务完成了。
+// 兼容性（v7）：所有服务可选——webServer / agents / Electron 任一缺失都
+// 优雅降级（无路由、隐藏输入框、日志通知），插件在最小部署也能激活；
+// 挂载日志自带环境自检报告。零运行时依赖，Node 20+。
 //
 // 通知窗口加载插件自带的 /task-notifier/toast 页面（同源），提交走
 // /task-notifier/input 路由（loopback + 同源 fence）。
-// 无 Electron（纯 dsh web）降级为 host 日志。
 
-import { randomUUID } from 'node:crypto'
+import * as nodeCrypto from 'node:crypto'
 import { createRequire } from 'node:module'
 
-export const inject = ['webServer']
+export const inject = []
+
+/** 生成消息 id：Node 20+ 有 randomUUID；极端环境回退到时间戳+随机串。 */
+function newMessageId() {
+  try {
+    if (typeof nodeCrypto.randomUUID === 'function') return nodeCrypto.randomUUID()
+  } catch {
+    // 回退
+  }
+  return `dsh-tcn-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+/** 反向找最新 session/title 事件（findLast 的零依赖替代，兼容旧 Node）。 */
+function latestSessionTitleEvent(events) {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const e = events[i]
+    if (e && e.type === 'session/title') return e
+  }
+  return undefined
+}
 
 const DEFAULT_TITLE = '✓ Task Completed'
 const DEFAULT_BODY = 'The current DeepSeek Harness task has finished. Please proceed to the next step.'
@@ -142,20 +155,27 @@ function renderToastPage(opts) {
   <div class="title">${escapeHtml(opts.title)}</div>
   ${opts.taskTitle ? `<div class="taskTitle" title="${escapeHtml(opts.taskTitle)}">${escapeHtml(opts.taskTitle)}</div>` : ''}
   <p class="body">${escapeHtml(opts.body)}</p>
-  <div class="row">
+  ${opts.inputAvailable
+    ? `<div class="row">
     <input id="prompt" class="prompt" type="text" placeholder="${escapeHtml(opts.placeholder)}" autocomplete="off">
     <button id="send" class="btn primary" type="button">${escapeHtml(opts.sendLabel)}</button>
     <button class="btn" type="button" onclick="window.close()">${escapeHtml(opts.laterLabel)}</button>
-  </div>
+  </div>`
+    : `<div class="row">
+    <button class="btn" type="button" onclick="window.close()">${escapeHtml(opts.laterLabel)}</button>
+  </div>`}
   <div id="error" class="error"></div>
 </div>
 <script>
 (function () {
-  var SESSION_ID = ${JSON.stringify(opts.sessionId)};
   var input = document.getElementById('prompt');
   var send = document.getElementById('send');
   var error = document.getElementById('error');
   var submitting = false;
+
+  // 输入框不可用（该部署缺 agents 服务）时，脚本只保留关闭逻辑
+  if (!input || !send) return;
+  var SESSION_ID = ${JSON.stringify(opts.sessionId)};
 
   function showError(msg) {
     error.textContent = msg;
@@ -221,7 +241,14 @@ export function apply(ctx, config = {}) {
   const sendLabel = typeof config.sendLabel === 'string' ? config.sendLabel : '发送'
   const laterLabel = typeof config.laterLabel === 'string' ? config.laterLabel : '稍后'
 
-  // 可选服务：agents（agent 注册表，用于 followup 注入指令）
+  // 可选服务：全部通过 ctx.get 获取（不写进 inject），任何一个缺失都优雅降级，
+  // 插件在最小部署（无 webServer / 无 agents / 非 Electron）下也能激活。
+  let webServer
+  try {
+    webServer = ctx.get('webServer')
+  } catch {
+    webServer = undefined
+  }
   let agents
   try {
     agents = ctx.get('agents')
@@ -238,8 +265,11 @@ export function apply(ctx, config = {}) {
     electron = null
   }
 
-  const port = ctx.webServer && typeof ctx.webServer.port === 'number' ? ctx.webServer.port : 0
+  const port =
+    webServer && typeof webServer.port === 'number' && webServer.port > 0 ? webServer.port : 0
   const baseUrl = `http://127.0.0.1:${port}`
+  const inputAvailable = !!(agents && typeof agents.get === 'function')
+  const windowCapable = !!(electron && typeof electron.BrowserWindow === 'function') && port > 0
 
   function log(line) {
     try {
@@ -251,93 +281,107 @@ export function apply(ctx, config = {}) {
   }
 
   // ------------------------------------------------------------ 路由 ------
-  // 通知页面（GET）：Electron 窗口加载它（同源，便于提交走同源 fetch）
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact',
-    path: '/task-notifier/toast',
-    handler: (req, res) => {
-      if (!isTrustedRequest(req)) {
-        res.writeHead(403)
-        res.end('forbidden')
-        return
-      }
-      if (req.method !== 'GET') {
-        res.writeHead(405)
-        res.end()
-        return
-      }
-      const url = new URL(req.url ?? '/', baseUrl)
-      const page = renderToastPage({
-        sessionId: url.searchParams.get('sessionId') ?? '',
-        title: url.searchParams.get('title') || title,
-        taskTitle: url.searchParams.get('taskTitle') ?? '',
-        body: url.searchParams.get('body') || body,
-        placeholder,
-        sendLabel,
-        laterLabel,
-      })
-      res.writeHead(200, {
-        'content-type': 'text/html; charset=utf-8',
-        'cache-control': 'no-store',
-      })
-      res.end(page)
-    },
-  }), 'task-notifier: toast page route')
+  // 仅当 webServer 服务存在时注册（缺失时通知降级为 host 日志）
+  if (webServer && typeof webServer.register === 'function') {
+    // 通知页面（GET）：Electron 窗口加载它（同源，便于提交走同源 fetch）
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/task-notifier/toast',
+      handler: (req, res) => {
+        if (!isTrustedRequest(req)) {
+          res.writeHead(403)
+          res.end('forbidden')
+          return
+        }
+        if (req.method !== 'GET') {
+          res.writeHead(405)
+          res.end()
+          return
+        }
+        const url = new URL(req.url ?? '/', baseUrl)
+        const page = renderToastPage({
+          sessionId: url.searchParams.get('sessionId') ?? '',
+          title: url.searchParams.get('title') || title,
+          taskTitle: url.searchParams.get('taskTitle') ?? '',
+          body: url.searchParams.get('body') || body,
+          placeholder,
+          sendLabel,
+          laterLabel,
+          inputAvailable,
+        })
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store',
+        })
+        res.end(page)
+      },
+    }), 'task-notifier: toast page route')
 
   // 指令提交（POST）：注入对应会话的 agent
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact',
-    path: '/task-notifier/input',
-    handler: async (req, res) => {
-      const send = (status, payload) => {
-        res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-        res.end(JSON.stringify(payload))
-      }
-      if (!isTrustedRequest(req)) {
-        send(403, { ok: false, error: 'forbidden' })
-        return
-      }
-      if (req.method !== 'POST') {
-        send(405, { ok: false, error: 'method not allowed' })
-        return
-      }
-      let payload
-      try {
-        payload = await readJsonBody(req)
-      } catch {
-        send(400, { ok: false, error: 'invalid JSON body' })
-        return
-      }
-      const sessionId = payload && typeof payload.sessionId === 'string' ? payload.sessionId : ''
-      const text = payload && typeof payload.text === 'string' ? payload.text.trim() : ''
-      if (sessionId === '' || text === '') {
-        send(400, { ok: false, error: 'sessionId and non-empty text are required' })
-        return
-      }
-      if (text.length > 8000) {
-        send(400, { ok: false, error: 'text too long (max 8000 chars)' })
-        return
-      }
-      const agent = agents && typeof agents.get === 'function' ? agents.get(sessionId) : undefined
-      if (!agent || typeof agent.followup !== 'function') {
-        send(404, { ok: false, error: '该会话已不存在或不可用' })
-        return
-      }
-      try {
-        const message = {
-          role: 'user',
-          id: randomUUID(),
-          content: [{ type: 'text', text }],
-          source: { kind: 'user' },
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/task-notifier/input',
+      handler: async (req, res) => {
+        const send = (status, payload) => {
+          res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
+          res.end(JSON.stringify(payload))
         }
-        agent.followup(message)
-        log(`[task-notifier] instruction delivered to session ${sessionId}: ${text.slice(0, 80)}`)
-        send(200, { ok: true })
-      } catch (error) {
-        send(500, { ok: false, error: error instanceof Error ? error.message : String(error) })
-      }
-    },
-  }), 'task-notifier: instruction input route')
+        if (!isTrustedRequest(req)) {
+          send(403, { ok: false, error: 'forbidden' })
+          return
+        }
+        if (req.method !== 'POST') {
+          send(405, { ok: false, error: 'method not allowed' })
+          return
+        }
+        let payload
+        try {
+          payload = await readJsonBody(req)
+        } catch {
+          send(400, { ok: false, error: 'invalid JSON body' })
+          return
+        }
+        const sessionId = payload && typeof payload.sessionId === 'string' ? payload.sessionId : ''
+        const text = payload && typeof payload.text === 'string' ? payload.text.trim() : ''
+        if (sessionId === '' || text === '') {
+          send(400, { ok: false, error: 'sessionId and non-empty text are required' })
+          return
+        }
+        if (text.length > 8000) {
+          send(400, { ok: false, error: 'text too long (max 8000 chars)' })
+          return
+        }
+        if (!agents || typeof agents.get !== 'function') {
+          send(503, { ok: false, error: '该部署没有 agents 服务，无法注入指令' })
+          return
+        }
+        const agent = agents.get(sessionId)
+        if (!agent) {
+          send(404, { ok: false, error: '该会话已不存在或不可用' })
+          return
+        }
+        if (typeof agent.followup !== 'function') {
+          send(501, { ok: false, error: '该 DSH 版本的 agent 不支持 followup 注入' })
+          return
+        }
+        try {
+          const message = {
+            role: 'user',
+            id: newMessageId(),
+            content: [{ type: 'text', text }],
+            source: { kind: 'user' },
+          }
+          agent.followup(message)
+          log(`[task-notifier] instruction delivered to session ${sessionId}: ${text.slice(0, 80)}`)
+          send(200, { ok: true })
+        } catch (error) {
+          send(500, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        }
+      },
+    }), 'task-notifier: instruction input route')
+  } else {
+    log('[task-notifier] webServer service unavailable — routes skipped, toast degrades to host logs')
+  }
 
   // ------------------------------------------------- 队列 + 窗口管理 ------
   const queue = []
@@ -349,7 +393,7 @@ export function apply(ctx, config = {}) {
     try {
       const events = session && session.events
       if (!Array.isArray(events)) return ''
-      const last = events.findLast((e) => e && e.type === 'session/title')
+      const last = latestSessionTitleEvent(events)
       if (last && last.data && typeof last.data.title === 'string') return last.data.title
     } catch {
       // 读不到标题时留空
@@ -384,8 +428,8 @@ export function apply(ctx, config = {}) {
   }
 
   function showWindow(item) {
-    if (!electron || typeof electron.BrowserWindow !== 'function') {
-      // 无 Electron（纯 dsh web）：降级日志，不进队列
+    if (!windowCapable) {
+      // 无 Electron 或端口无效（纯 dsh web / 特殊部署）：降级日志，不进队列
       log(`[task-notifier] ${item.taskTitle ? `[${item.taskTitle}] ` : ''}${item.title} — ${item.body}`)
       return
     }
@@ -527,5 +571,5 @@ export function apply(ctx, config = {}) {
     }
   })
 
-  log('[task-notifier] host half mounted (v6: agent/status + input-capable topmost card + queue + task title)')
+  log(`[task-notifier] host half mounted (v7: env webServer=${!!webServer} agents=${inputAvailable} electron=${!!(electron && typeof electron.BrowserWindow === 'function')} port=${port})`)
 }

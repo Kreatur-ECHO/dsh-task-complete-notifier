@@ -36,6 +36,7 @@ function makeRes() {
 const ctx = {
   get(name) {
     if (name === 'agents') return ctx.agents
+    if (name === 'webServer') return ctx.webServer
     throw new Error(`service "${name}" unavailable in this mock`)
   },
   on(name, fn) {

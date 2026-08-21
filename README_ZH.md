@@ -62,19 +62,30 @@ DSH 的 agent 状态机：`running`（任务执行中，包括 goal 多轮任务
 
 ### 方式一：下载 tarball 安装（推荐）
 
-1. 从 [Releases](https://github.com/Kreatur-ECHO/dsh-task-complete-notifier/releases) 下载 `dsh-task-complete-notifier-1.0.0.tgz`
+1. 从 [Releases](https://github.com/Kreatur-ECHO/dsh-task-complete-notifier/releases) 下载 `dsh-task-complete-notifier-1.3.0.tgz`
 
 2. 用 DSH CLI 安装（`<profile>` 换成你的 profile 名，如 `desktop`）：
 
    ```powershell
-   dsh plugin --profile desktop add file:D:\Downloads\dsh-task-complete-notifier-1.0.0.tgz
+   dsh plugin --profile desktop add file:D:\Downloads\dsh-task-complete-notifier-1.3.0.tgz
    ```
 
    该命令会自动协调 `dsh.profile.bundles` 并安装依赖。
 
 3. 重启 DSH Desktop。
 
-### 方式二：手动安装
+### 方式二：一键安装脚本（自动配置环境）
+
+随包附带的 `install.ps1` 自动完成手动安装的全部步骤——把插件放进 `~/.dsh/plugins/`、在 profile 的 `package.json` 注册依赖和 bundle（幂等）、往 `cordis.patch.yml` 写入挂载行和默认 config、执行 `pnpm install`、最后打印重启提示：
+
+```powershell
+# 解压 tarball 后，在解压目录里运行：
+powershell -ExecutionPolicy Bypass -File install.ps1
+# 或直接从 tarball 安装 / 指定 profile：
+powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\dsh-task-complete-notifier-1.3.0.tgz
+```
+
+### 方式三：手动安装
 
 1. 解压 tarball 到任意目录（如 `C:\Users\<你>\.dsh\plugins\dsh-task-complete-notifier`）
 
@@ -104,10 +115,28 @@ DSH 的 agent 状态机：`running`（任务执行中，包括 goal 多轮任务
 重启后日志出现：
 
 ```
-[task-notifier] host half mounted (v5: agent/status + input-capable topmost card + queue)
+[task-notifier] host half mounted (v7: env webServer=true agents=true electron=true port=61997)
 ```
 
 跑一个任务到结束，右下角应弹出通知卡片。
+
+## 🧩 环境与兼容性
+
+所有依赖都是**可选的**——最小部署下插件也能激活并优雅降级。挂载日志就是内置的环境自检：
+
+```
+[task-notifier] host half mounted (v7: env webServer=true agents=true electron=true port=61997)
+```
+
+| 能力 | 用途 | 缺失时 |
+|---|---|---|
+| `agent/status` 事件（host 侧） | 任务完成检测 | DSH 必有，实际必需 |
+| `webServer` 服务 | `/task-notifier/*` 路由 | 跳过路由，通知降级为 host 日志 |
+| `agents` 服务 + `agent.followup` | 卡片内输入指令 | 卡片隐藏输入框，检测照常 |
+| Electron（`desktopRuntime`） | 置顶卡片窗口 | 通知降级为 host 日志（纯 `dsh web`） |
+| `session/title` 事件 | 卡片显示任务标题 | 标题行隐藏 |
+
+运行要求：**Node ≥ 20**、带 agent loop 的 DSH（`agent.followup` 建议 rc.6+）。零运行时 npm 依赖。
 
 ## ⚙️ 配置
 
