@@ -199,20 +199,37 @@ function renderToastPage(opts) {
     return DEFAULT_SOUND;
   })();
 
-  // 合成柔和的"叮"声：660Hz 三角波（圆润）+ 1320Hz 轻谐波（通透），
-  // 12ms 淡入避免爆音，指数自然衰减（无音频文件，零体积）
+  // 播放音效：优先自定义音频文件（<audio> + 0.1s 音量渐入），
+  // 否则 Web Audio 合成柔和"叮"声（660Hz 三角波，0.1s 渐入 + 指数衰减）
   function playDing() {
-    // 配置了自定义音频文件时，优先播放它（<audio> 元素）
     var SOUND_URL = ${JSON.stringify(opts.soundUrl || '')};
+    var SOUND_VOLUME = ${typeof opts.soundVolume === 'number' ? opts.soundVolume : 1};
+    var FADE_MS = 100; // 0.1s 平滑渐入
+
     if (SOUND_URL) {
+      // 自定义音频：volume 从 0 用 0.1s 渐入到目标音量（不爆音、不突兀）
       try {
         var a = new Audio(SOUND_URL);
-        a.volume = ${typeof opts.soundVolume === 'number' ? opts.soundVolume : 1};
+        a.volume = 0;
+        var fadeIn = function () {
+          var start = Date.now();
+          var step = function () {
+            var t = Math.min(1, (Date.now() - start) / FADE_MS);
+            a.volume = SOUND_VOLUME * t;
+            if (t < 1) {
+              if (typeof requestAnimationFrame === 'function') requestAnimationFrame(step);
+              else setTimeout(step, 16);
+            }
+          };
+          step();
+        };
         var p = a.play();
-        if (p && typeof p.catch === 'function') p.catch(function () { /* 自动播放受限则静默 */ });
+        if (p && typeof p.then === 'function') p.then(fadeIn, function () {});
+        else fadeIn();
       } catch (e) { /* 忽略 */ }
       return;
     }
+
     try {
       var Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) return;
@@ -225,7 +242,7 @@ function renderToastPage(opts) {
       osc1.type = 'triangle';
       osc1.frequency.value = 660;
       gain1.gain.setValueAtTime(0.0001, now);
-      gain1.gain.linearRampToValueAtTime(0.22, now + 0.012); // 淡入消 click
+      gain1.gain.linearRampToValueAtTime(0.22, now + 0.1); // 0.1s 平滑渐入
       gain1.gain.exponentialRampToValueAtTime(0.0001, now + 0.8); // 自然衰减
       osc1.connect(gain1).connect(ctx.destination);
       osc1.start(now);
@@ -237,7 +254,7 @@ function renderToastPage(opts) {
       osc2.type = 'sine';
       osc2.frequency.value = 1320;
       gain2.gain.setValueAtTime(0.0001, now);
-      gain2.gain.linearRampToValueAtTime(0.07, now + 0.012);
+      gain2.gain.linearRampToValueAtTime(0.07, now + 0.1);
       gain2.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
       osc2.connect(gain2).connect(ctx.destination);
       osc2.start(now);
@@ -261,7 +278,8 @@ function renderToastPage(opts) {
     });
   }
   updateSoundBtn();
-  if (soundOn) setTimeout(playDing, 250); // 卡片弹出后轻响一声
+  // 提前 0.1s 触发，抵消渐入带来的"延迟感"：0.1s 渐入结束时正好到达全音量
+  if (soundOn) setTimeout(playDing, 150);
 
   // 输入框不可用（该部署缺 agents 服务）时，脚本只保留关闭逻辑
   if (!input || !send) return;

@@ -156,7 +156,22 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\ds
     laterLabel: '稍后'                     # 关闭按钮文字
     soundEnabled: true                    # 音效缺省状态（卡片按钮可覆盖并持久化）
     soundToggleTitle: '音效开关'           # 音效按钮提示
+    soundFile: ''                         # 自定义音效文件（本地音频绝对路径，如 mp3/wav/ogg/m4a）
+    soundVolume: 1.0                      # 音效音量 0~1
 ```
+
+### 🔔 自定义音效
+
+默认播放内置合成的「叮」声。你可以换成**自己的音频文件**——把 `soundFile` 设为任意 Chromium 支持的音频的绝对路径（mp3 / wav / ogg / m4a …）：
+
+```yaml
+- id: task-complete-notifier
+  config:
+    soundFile: 'D:\音乐\我的提示音.mp3'
+    soundVolume: 1.0
+```
+
+host 半通过同源的 `/task-notifier/sound` 路由（loopback 栅栏内）把文件 serve 给卡片播放。`soundFile` 留空则回退到内置「叮」声。音效以 0.1s 平滑渐入，并提前 0.1s 触发，渐入结束时正好达到全音量、不显得延迟。
 
 ## ❓ FAQ
 

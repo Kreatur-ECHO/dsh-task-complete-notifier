@@ -1,6 +1,6 @@
 {
   "name": "dsh-task-complete-notifier",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "DeepSeek Harness 任务完成通知插件：右下角置顶卡片显示对话标题，可直接输入下一条指令，可开关的\"叮\"声提示，环境缺失自动降级",
   "type": "module",
   "license": "MIT",

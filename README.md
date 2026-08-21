@@ -156,7 +156,22 @@ Add `config` to the plugin's mount row in your profile's `cordis.patch.yml` (id-
     laterLabel: '稍后'                     # dismiss button label
     soundEnabled: true                    # default sound state (card button overrides it and persists)
     soundToggleTitle: '音效开关'           # sound button tooltip
+    soundFile: ''                         # custom sound file (absolute path to an mp3/wav/ogg/m4a)
+    soundVolume: 1.0                      # sound volume 0~1
 ```
+
+### 🔔 Custom sound
+
+By default the toast plays a built-in synthesized "ding". You can replace it with **your own audio file** — set `soundFile` to an absolute path of any Chromium-supported audio (mp3 / wav / ogg / m4a …):
+
+```yaml
+- id: task-complete-notifier
+  config:
+    soundFile: 'D:\Music\my-notification.mp3'
+    soundVolume: 1.0
+```
+
+The host half serves that file to the card over the same-origin `/task-notifier/sound` route (loopback-fenced). Leave `soundFile` empty to fall back to the built-in ding. The sound fades in over 0.1s and starts 0.1s early so the fade doesn't feel delayed.
 
 ## ❓ FAQ
 
