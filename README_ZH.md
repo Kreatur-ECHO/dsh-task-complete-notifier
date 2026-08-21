@@ -17,15 +17,16 @@ DeepSeek Harness 任务完成通知插件：当 agent 一个任务**真正结束
 - **排队不覆盖（v1.1）**：通知一次只显示一个。当前卡片还在（你可能正在输入）时，新完成的任务排队等待，你输到一半的内容绝不会被新通知冲掉；提交或关闭当前卡片后自动弹出下一个
 - **输入自动聚焦**：卡片弹出即聚焦输入框，可直接打字
 - **跳过子代理**：子代理（subagent）任务结束不通知，只通知主任务
-- **无音频**：纯视觉提示
+- **🔔 可开关的「叮」声提示（v1.4）**：卡片弹出时播放 Web Audio 合成的"叮"声（无音频文件）；右上角 🔊/🔕 按钮一键开关，选择跨通知持久（localStorage）
 - **可配置**：文案、延迟、冷却、自动关闭时间、占位符、按钮文字都可通过 `cordis.patch.yml` 覆盖
 
 ## 🖼️ 通知卡片
 
 ```
 ┌──────────────────────────────────────┐
-│ ✓ Task Completed                     │  ← #E5E5E5 加粗 16px
+│ ✓ Task Completed              🔊     │  ← 标题 + 音效开关
 │                                      │
+│ [对话任务标题]                        │  ← #8AB4F8 14px
 │ The current DeepSeek Harness task    │  ← #AAAAAA 14px / 1.6
 │ has finished. Please proceed to      │
 │ the next step.                       │
@@ -153,6 +154,8 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\ds
     placeholder: '输入下一步指令，Enter 发送…'   # 输入框占位符
     sendLabel: '发送'                      # 发送按钮文字
     laterLabel: '稍后'                     # 关闭按钮文字
+    soundEnabled: true                    # 音效缺省状态（卡片按钮可覆盖并持久化）
+    soundToggleTitle: '音效开关'           # 音效按钮提示
 ```
 
 ## ❓ FAQ

@@ -17,15 +17,16 @@ A DeepSeek Harness plugin that pops up a **topmost** dark rounded toast card in 
 - **Queue, never overwrite (v1.1)**: toasts show one at a time. A new completion queues behind the current toast, so an instruction you're typing is never wiped by the next toast — when you submit or dismiss, the next one appears
 - **Focuses for typing**: the toast focuses its input box on show, so you can start typing immediately
 - **Skips subagents**: only notifies when the main task finishes
-- **No audio**: visual-only
+- **🔔 Ding sound with a toggle (v1.4)**: the toast plays a synthesized "ding" (Web Audio, no audio file) when it appears; a 🔊/🔕 button in the top-right corner toggles it, and your choice persists across toasts (localStorage)
 - **Configurable**: text, settle delay, cooldown, auto-close, placeholder, labels — all via `cordis.patch.yml`
 
 ## 🖼️ The toast
 
 ```
 ┌──────────────────────────────────────┐
-│ ✓ Task Completed                     │  ← #E5E5E5 bold 16px
+│ ✓ Task Completed              🔊     │  ← title + sound toggle
 │                                      │
+│ [Conversation task title]            │  ← #8AB4F8 14px
 │ The current DeepSeek Harness task    │  ← #AAAAAA 14px / 1.6
 │ has finished. Please proceed to      │
 │ the next step.                       │
@@ -153,6 +154,8 @@ Add `config` to the plugin's mount row in your profile's `cordis.patch.yml` (id-
     placeholder: '输入下一步指令，Enter 发送…'   # input placeholder
     sendLabel: '发送'                      # submit button label
     laterLabel: '稍后'                     # dismiss button label
+    soundEnabled: true                    # default sound state (card button overrides it and persists)
+    soundToggleTitle: '音效开关'           # sound button tooltip
 ```
 
 ## ❓ FAQ

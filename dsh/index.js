@@ -1,4 +1,4 @@
-// dsh-task-complete-notifier — host half (v7: toast + input + task title + degraded-compatible)
+// dsh-task-complete-notifier — host half (v8: toast + input + task title + sound toggle)
 //
 // 检测信号：agent/status 事件 running→idle 边沿 + 3 秒确认，任务真正结束时触发。
 //
@@ -6,7 +6,10 @@
 // 直接下达下一条指令（agent.followup 注入）。多任务同时结束走「一次一个」
 // 队列，输入内容不会被新通知覆盖。
 //
-// 兼容性（v7）：所有服务可选——webServer / agents / Electron 任一缺失都
+// v8：卡片右上角音效开关（🔊/🔕），Web Audio 合成"叮"声（无音频文件）；
+// 开关状态存 localStorage 跨通知持久，config.soundEnabled 控制缺省值。
+//
+// 兼容性：所有服务可选——webServer / agents / Electron 任一缺失都
 // 优雅降级（无路由、隐藏输入框、日志通知），插件在最小部署也能激活；
 // 挂载日志自带环境自检报告。零运行时依赖，Node 20+。
 //
@@ -115,7 +118,17 @@ function renderToastPage(opts) {
     cursor: default;
     user-select: none;
   }
-  .title { margin: 0 0 4px; font-size: 16px; font-weight: 700; color: #E5E5E5; }
+  .headRow { display: flex; align-items: center; justify-content: space-between; margin: 0 0 4px; }
+  .title { margin: 0; font-size: 16px; font-weight: 700; color: #E5E5E5; }
+  .soundBtn {
+    flex: none; margin: 0; padding: 2px 4px;
+    background: transparent; color: #AAAAAA;
+    border: none; border-radius: 4px;
+    font-size: 15px; line-height: 1; cursor: pointer;
+    transition: color 0.15s ease;
+  }
+  .soundBtn:hover { color: #E5E5E5; }
+  .soundBtn.off { color: #555555; }
   .taskTitle {
     margin: 0 0 8px; font-size: 14px; font-weight: 600; color: #8AB4F8;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -152,7 +165,10 @@ function renderToastPage(opts) {
 <body>
 <div class="overlay" onclick="window.close()"></div>
 <div class="popup">
-  <div class="title">${escapeHtml(opts.title)}</div>
+  <div class="headRow">
+    <div class="title">${escapeHtml(opts.title)}</div>
+    <button id="soundBtn" class="soundBtn" type="button" title="${escapeHtml(opts.soundToggleTitle)}">🔊</button>
+  </div>
   ${opts.taskTitle ? `<div class="taskTitle" title="${escapeHtml(opts.taskTitle)}">${escapeHtml(opts.taskTitle)}</div>` : ''}
   <p class="body">${escapeHtml(opts.body)}</p>
   ${opts.inputAvailable
@@ -172,6 +188,66 @@ function renderToastPage(opts) {
   var send = document.getElementById('send');
   var error = document.getElementById('error');
   var submitting = false;
+
+  // ---- 音效（独立于输入框可用性）：开关状态持久化到 localStorage ----
+  var SOUND_KEY = 'dsh-tcn-sound';
+  var DEFAULT_SOUND = ${opts.soundDefault ? 'true' : 'false'};
+  var soundBtn = document.getElementById('soundBtn');
+  var soundOn = (function () {
+    var stored = null;
+    try { stored = localStorage.getItem(SOUND_KEY); } catch (e) { /* 不可用 */ }
+    if (stored === '1') return true;
+    if (stored === '0') return false;
+    return DEFAULT_SOUND;
+  })();
+
+  // 合成"叮"的一声：880Hz 基音 + 1760Hz 谐波，快速衰减（无音频文件，零体积）
+  function playDing() {
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      var ctx = new Ctx();
+      var now = ctx.currentTime;
+
+      var osc1 = ctx.createOscillator();
+      var gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.value = 880;
+      gain1.gain.setValueAtTime(0.35, now);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+      osc1.connect(gain1).connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.5);
+
+      var osc2 = ctx.createOscillator();
+      var gain2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.value = 1760;
+      gain2.gain.setValueAtTime(0.12, now);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+      osc2.connect(gain2).connect(ctx.destination);
+      osc2.start(now);
+      osc2.stop(now + 0.3);
+    } catch (e) { /* 音频不可用则静默 */ }
+  }
+
+  function updateSoundBtn() {
+    if (!soundBtn) return;
+    soundBtn.textContent = soundOn ? '🔊' : '🔕';
+    if (soundOn) soundBtn.classList.remove('off');
+    else soundBtn.classList.add('off');
+  }
+
+  if (soundBtn) {
+    soundBtn.addEventListener('click', function () {
+      soundOn = !soundOn;
+      try { localStorage.setItem(SOUND_KEY, soundOn ? '1' : '0'); } catch (e) { /* 不可用 */ }
+      updateSoundBtn();
+      if (soundOn) playDing(); // 开启时预览一声
+    });
+  }
+  updateSoundBtn();
+  if (soundOn) setTimeout(playDing, 250); // 卡片弹出后轻响一声
 
   // 输入框不可用（该部署缺 agents 服务）时，脚本只保留关闭逻辑
   if (!input || !send) return;
@@ -240,6 +316,10 @@ export function apply(ctx, config = {}) {
     typeof config.placeholder === 'string' ? config.placeholder : '输入下一步指令，Enter 发送…'
   const sendLabel = typeof config.sendLabel === 'string' ? config.sendLabel : '发送'
   const laterLabel = typeof config.laterLabel === 'string' ? config.laterLabel : '稍后'
+  // 音效：默认开启；卡片按钮的切换结果持久化到 localStorage（跨通知生效）
+  const soundEnabled = config.soundEnabled !== false
+  const soundToggleTitle =
+    typeof config.soundToggleTitle === 'string' ? config.soundToggleTitle : '音效开关'
 
   // 可选服务：全部通过 ctx.get 获取（不写进 inject），任何一个缺失都优雅降级，
   // 插件在最小部署（无 webServer / 无 agents / 非 Electron）下也能激活。
@@ -308,6 +388,8 @@ export function apply(ctx, config = {}) {
           sendLabel,
           laterLabel,
           inputAvailable,
+          soundDefault: soundEnabled,
+          soundToggleTitle,
         })
         res.writeHead(200, {
           'content-type': 'text/html; charset=utf-8',
@@ -571,5 +653,5 @@ export function apply(ctx, config = {}) {
     }
   })
 
-  log(`[task-notifier] host half mounted (v7: env webServer=${!!webServer} agents=${inputAvailable} electron=${!!(electron && typeof electron.BrowserWindow === 'function')} port=${port})`)
+  log(`[task-notifier] host half mounted (v8: env webServer=${!!webServer} agents=${inputAvailable} electron=${!!(electron && typeof electron.BrowserWindow === 'function')} port=${port} sound=${soundEnabled ? 'on' : 'off'})`)
 }

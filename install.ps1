@@ -131,6 +131,8 @@ if ($patch -notmatch 'id:\s*task-complete-notifier') {
     placeholder: '输入下一步指令，Enter 发送…'
     sendLabel: '发送'
     laterLabel: '稍后'
+    soundEnabled: true
+    soundToggleTitle: '音效开关'
 "@
   Add-Content -Path $patchPath -Value $block -Encoding UTF8
   Write-Host "        挂载行 + 默认 config 已写入" -ForegroundColor Green

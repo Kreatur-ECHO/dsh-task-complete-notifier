@@ -178,3 +178,26 @@ console.log(`场景4 路由已注册: ${inputRoute && toastRoute ? 'PASS' : 'FAI
   const noCrash = last && last.startsWith('[task-notifier] ✓ Task Completed')
   console.log(`场景10 无标题降级: ${noCrash ? 'PASS' : 'FAIL'} (${last})`)
 }
+
+// ---- v8：音效开关 --------------------------------------------------------
+// 场景 11：toast 页面含音效按钮与 Web Audio 合成逻辑
+{
+  const { res, out } = makeRes()
+  const getReq = {
+    headers: { host: '127.0.0.1:61997' },
+    method: 'GET',
+    url: '/task-notifier/toast?sessionId=s1',
+    [Symbol.asyncIterator]() {
+      return { next: () => Promise.resolve({ done: true, value: undefined }) }
+    },
+  }
+  toastRoute.handler(getReq, res)
+  const html = out.body
+  const hasSound =
+    html.includes('soundBtn')
+    && html.includes('playDing')
+    && html.includes('AudioContext')
+    && html.includes('dsh-tcn-sound')
+    && html.includes('localStorage')
+  console.log(`场景11 音效元素存在: ${hasSound ? 'PASS' : 'FAIL'} (status=${out.status})`)
+}
