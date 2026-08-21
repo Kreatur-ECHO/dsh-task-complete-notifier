@@ -1,4 +1,4 @@
-// dsh-task-complete-notifier — host half (v8: toast + input + task title + sound toggle)
+// dsh-task-complete-notifier — host half (v9: toast + input + task title + custom sound file)
 //
 // 检测信号：agent/status 事件 running→idle 边沿 + 3 秒确认，任务真正结束时触发。
 //
@@ -6,17 +6,15 @@
 // 直接下达下一条指令（agent.followup 注入）。多任务同时结束走「一次一个」
 // 队列，输入内容不会被新通知覆盖。
 //
-// v8：卡片右上角音效开关（🔊/🔕），Web Audio 合成"叮"声（无音频文件）；
-// 开关状态存 localStorage 跨通知持久，config.soundEnabled 控制缺省值。
-//
-// 兼容性：所有服务可选——webServer / agents / Electron 任一缺失都
-// 优雅降级（无路由、隐藏输入框、日志通知），插件在最小部署也能激活；
-// 挂载日志自带环境自检报告。零运行时依赖，Node 20+。
+// v9：音效支持自定义音频文件——config.soundFile 指定本地音频路径，host 半
+// 经 /task-notifier/sound 路由 serve，卡片用 <audio> 播放；未配置时回退到
+// Web Audio 合成"叮"。开关状态存 localStorage 跨通知持久。
 //
 // 通知窗口加载插件自带的 /task-notifier/toast 页面（同源），提交走
 // /task-notifier/input 路由（loopback + 同源 fence）。
 
 import * as nodeCrypto from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 
 export const inject = ['webServer', 'agents']
@@ -100,7 +98,7 @@ function renderToastPage(opts) {
 <html>
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; media-src 'self'">
 <style>
   html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
   .overlay { position: fixed; inset: 0; background: transparent; }
@@ -204,6 +202,17 @@ function renderToastPage(opts) {
   // 合成柔和的"叮"声：660Hz 三角波（圆润）+ 1320Hz 轻谐波（通透），
   // 12ms 淡入避免爆音，指数自然衰减（无音频文件，零体积）
   function playDing() {
+    // 配置了自定义音频文件时，优先播放它（<audio> 元素）
+    var SOUND_URL = ${JSON.stringify(opts.soundUrl || '')};
+    if (SOUND_URL) {
+      try {
+        var a = new Audio(SOUND_URL);
+        a.volume = ${typeof opts.soundVolume === 'number' ? opts.soundVolume : 1};
+        var p = a.play();
+        if (p && typeof p.catch === 'function') p.catch(function () { /* 自动播放受限则静默 */ });
+      } catch (e) { /* 忽略 */ }
+      return;
+    }
     try {
       var Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) return;
@@ -325,6 +334,11 @@ export function apply(ctx, config = {}) {
   const soundEnabled = config.soundEnabled !== false
   const soundToggleTitle =
     typeof config.soundToggleTitle === 'string' ? config.soundToggleTitle : '音效开关'
+  // 自定义音频文件：指定本地音频路径（如 mp3/wav），经 /task-notifier/sound 路由
+  // serve 给卡片播放；未配置时回退到 Web Audio 合成"叮"。
+  const soundFile = typeof config.soundFile === 'string' ? config.soundFile : ''
+  const soundVolume = typeof config.soundVolume === 'number' ? config.soundVolume : 1
+  const soundUrl = soundFile !== '' ? '/task-notifier/sound' : ''
 
   // 服务通过 inject 声明（ctx.webServer / ctx.agents 直接可用）。
   // 注意：不要用 ctx.get('xxx') 在这里取服务——DSH 的 isolate 语义下未 inject
@@ -387,6 +401,8 @@ export function apply(ctx, config = {}) {
           inputAvailable,
           soundDefault: soundEnabled,
           soundToggleTitle,
+          soundUrl,
+          soundVolume,
         })
         res.writeHead(200, {
           'content-type': 'text/html; charset=utf-8',
@@ -395,6 +411,41 @@ export function apply(ctx, config = {}) {
         res.end(page)
       },
     }), 'task-notifier: toast page route')
+
+    // 音效文件（GET）：serve config.soundFile 指定的本地音频，供卡片 <audio> 播放
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/task-notifier/sound',
+      handler: async (req, res) => {
+        if (!isTrustedRequest(req)) {
+          res.writeHead(403)
+          res.end('forbidden')
+          return
+        }
+        if (req.method !== 'GET') {
+          res.writeHead(405)
+          res.end()
+          return
+        }
+        if (soundFile === '') {
+          res.writeHead(404)
+          res.end('no sound file configured')
+          return
+        }
+        try {
+          const data = await readFile(soundFile)
+          res.writeHead(200, {
+            'content-type': 'audio/mpeg',
+            'cache-control': 'no-store',
+            'content-length': data.length,
+          })
+          res.end(data)
+        } catch {
+          res.writeHead(404)
+          res.end('sound file unreadable')
+        }
+      },
+    }), 'task-notifier: sound file route')
 
   // 指令提交（POST）：注入对应会话的 agent
     ctx.effect(() => webServer.register({
@@ -650,5 +701,5 @@ export function apply(ctx, config = {}) {
     }
   })
 
-  log(`[task-notifier] host half mounted (v8: env webServer=${!!webServer} agents=${inputAvailable} electron=${!!(electron && typeof electron.BrowserWindow === 'function')} port=${port} sound=${soundEnabled ? 'on' : 'off'})`)
+  log(`[task-notifier] host half mounted (v9: env webServer=${!!webServer} agents=${inputAvailable} electron=${!!(electron && typeof electron.BrowserWindow === 'function')} port=${port} sound=${soundEnabled ? 'on' : 'off'}${soundFile ? ` file=${soundFile}` : ''})`)
 }
