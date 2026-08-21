@@ -1,5 +1,7 @@
 # dsh-task-complete-notifier — DSH任务完成提醒
 
+[English](./README_EN.md) | 中文
+
 DeepSeek Harness 任务完成通知插件：当 agent 一个任务**真正结束**时，在屏幕右下角弹出一张**置顶**的深色圆角卡片。全程无音频，纯 host 半插件，零依赖。
 
 > 适用于 DSH Desktop（Electron 桌面端）。浏览器里用 `dsh web` 的场景会降级为 host 日志（见 FAQ）。
