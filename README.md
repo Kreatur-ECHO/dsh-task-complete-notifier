@@ -1,4 +1,4 @@
-# dsh-task-complete-notifier
+# dsh-task-complete-notifier — DSH任务完成提醒
 
 DeepSeek Harness 任务完成通知插件：当 agent 一个任务**真正结束**时，在屏幕右下角弹出一张**置顶**的深色圆角卡片。全程无音频，纯 host 半插件，零依赖。
 
