@@ -1,6 +1,6 @@
-// dsh-task-complete-notifier — host half (v5: toast + next-step input)
+// dsh-task-complete-notifier — host half (v6: toast + next-step input + task title)
 //
-// 检测信号（与 v4 相同）：agent/status 事件 running→idle 边沿 + 3 秒确认，
+// 检测信号（与 v4/v5 相同）：agent/status 事件 running→idle 边沿 + 3 秒确认，
 // 任务真正结束时触发。
 //
 // v5 新功能：通知卡片底部带输入框，可直接输入下一条指令——
@@ -11,6 +11,9 @@
 // 多任务同时结束的覆盖问题：通知窗口改为「一次一个」的队列——
 // 当前窗口还在（用户可能正在输入）时，新通知入队等待；用户提交
 // 或关闭当前窗口后才显示下一个。输入到一半的内容不会被新通知打断。
+//
+// v6 新功能：卡片标题下方显示该对话的任务标题（session/title 事件
+// 折叠的最新标题），一眼看出是哪个任务完成了。
 //
 // 通知窗口加载插件自带的 /task-notifier/toast 页面（同源），提交走
 // /task-notifier/input 路由（loopback + 同源 fence）。
@@ -99,7 +102,11 @@ function renderToastPage(opts) {
     cursor: default;
     user-select: none;
   }
-  .title { margin: 0 0 8px; font-size: 16px; font-weight: 700; color: #E5E5E5; }
+  .title { margin: 0 0 4px; font-size: 16px; font-weight: 700; color: #E5E5E5; }
+  .taskTitle {
+    margin: 0 0 8px; font-size: 14px; font-weight: 600; color: #8AB4F8;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   .body { margin: 0; font-size: 14px; line-height: 1.6; color: #AAAAAA; }
   .row { display: flex; gap: 8px; margin-top: 14px; }
   .prompt {
@@ -133,6 +140,7 @@ function renderToastPage(opts) {
 <div class="overlay" onclick="window.close()"></div>
 <div class="popup">
   <div class="title">${escapeHtml(opts.title)}</div>
+  ${opts.taskTitle ? `<div class="taskTitle" title="${escapeHtml(opts.taskTitle)}">${escapeHtml(opts.taskTitle)}</div>` : ''}
   <p class="body">${escapeHtml(opts.body)}</p>
   <div class="row">
     <input id="prompt" class="prompt" type="text" placeholder="${escapeHtml(opts.placeholder)}" autocomplete="off">
@@ -262,6 +270,7 @@ export function apply(ctx, config = {}) {
       const page = renderToastPage({
         sessionId: url.searchParams.get('sessionId') ?? '',
         title: url.searchParams.get('title') || title,
+        taskTitle: url.searchParams.get('taskTitle') ?? '',
         body: url.searchParams.get('body') || body,
         placeholder,
         sendLabel,
@@ -335,6 +344,19 @@ export function apply(ctx, config = {}) {
   let currentWin = null
   let autoCloseTimer = null
 
+  /** 从 session 事件日志读最新对话标题（session/title 事件，零依赖）。 */
+  function sessionTitleOf(session) {
+    try {
+      const events = session && session.events
+      if (!Array.isArray(events)) return ''
+      const last = events.findLast((e) => e && e.type === 'session/title')
+      if (last && last.data && typeof last.data.title === 'string') return last.data.title
+    } catch {
+      // 读不到标题时留空
+    }
+    return ''
+  }
+
   function closeCurrent() {
     if (autoCloseTimer) {
       clearTimeout(autoCloseTimer)
@@ -364,12 +386,12 @@ export function apply(ctx, config = {}) {
   function showWindow(item) {
     if (!electron || typeof electron.BrowserWindow !== 'function') {
       // 无 Electron（纯 dsh web）：降级日志，不进队列
-      log(`[task-notifier] ${item.title} — ${item.body}`)
+      log(`[task-notifier] ${item.taskTitle ? `[${item.taskTitle}] ` : ''}${item.title} — ${item.body}`)
       return
     }
     try {
       const WINDOW_W = 440
-      const WINDOW_H = 260
+      const WINDOW_H = 300
 
       let area = { x: 0, y: 0, width: 1920, height: 1080 }
       try {
@@ -413,6 +435,7 @@ export function apply(ctx, config = {}) {
       const url = `${baseUrl}/task-notifier/toast`
         + `?sessionId=${encodeURIComponent(item.sessionId)}`
         + `&title=${encodeURIComponent(item.title)}`
+        + `&taskTitle=${encodeURIComponent(item.taskTitle ?? '')}`
         + `&body=${encodeURIComponent(item.body)}`
       void win.loadURL(url)
 
@@ -436,27 +459,28 @@ export function apply(ctx, config = {}) {
         } catch { /* 忽略 */ }
       }, autoCloseMs)
     } catch {
-      log(`[task-notifier] ${item.title} — ${item.body}`)
+      log(`[task-notifier] ${item.taskTitle ? `[${item.taskTitle}] ` : ''}${item.title} — ${item.body}`)
     }
   }
 
   /** 通知入口：有窗口在显示就入队（不覆盖正在输入的内容），否则直接显示。 */
-  function tryNotify(sessionId) {
+  function tryNotify(sessionId, taskTitle) {
+    const item = { sessionId, taskTitle, title, body }
     if (currentWin) {
       if (queue.length >= MAX_QUEUE) queue.shift()
-      queue.push({ sessionId, title, body })
+      queue.push(item)
       return
     }
-    showWindow({ sessionId, title, body })
+    showWindow(item)
   }
 
   // -------------------------------------------------------- 检测逻辑 ------
   let lastNotifiedAt = 0
-  function tryNotifyCooldown(sessionId) {
+  function tryNotifyCooldown(sessionId, taskTitle) {
     const now = Date.now()
     if (now - lastNotifiedAt < cooldownMs) return
     lastNotifiedAt = now
-    tryNotify(sessionId)
+    tryNotify(sessionId, taskTitle)
   }
 
   const settleTimers = new Map()
@@ -471,7 +495,14 @@ export function apply(ctx, config = {}) {
       } catch {
         // agent 已销毁等情况 → 照常通知
       }
-      tryNotifyCooldown(agent.id)
+      // 读该会话的对话标题，显示在卡片上
+      let taskTitle = ''
+      try {
+        taskTitle = sessionTitleOf(agent.session)
+      } catch {
+        taskTitle = ''
+      }
+      tryNotifyCooldown(agent.id, taskTitle)
     }, settleMs)
     settleTimers.set(id, timer)
   }
@@ -496,5 +527,5 @@ export function apply(ctx, config = {}) {
     }
   })
 
-  log('[task-notifier] host half mounted (v5: agent/status + input-capable topmost card + queue)')
+  log('[task-notifier] host half mounted (v6: agent/status + input-capable topmost card + queue + task title)')
 }

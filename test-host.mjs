@@ -66,7 +66,7 @@ const ctx = {
   logger: { info(line) { if (line.includes('Task Completed')) notifications.push(line) } },
 }
 
-apply(ctx)
+apply(ctx, { cooldownMs: 200, settleMs: 300 })
 
 const mkAgent = (id, origin, status) => ({
   id,
@@ -78,7 +78,7 @@ const emit = (agent, status) => ctx.events['agent/status']({ agent, status })
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-const settleMs = 3000
+const settleMs = 300
 
 // ---- 检测逻辑（同 v3/v4）--------------------------------------------------
 // 场景 1：子代理 idle → 跳过
@@ -86,10 +86,10 @@ emit(mkAgent('sub1', 'subagent', 'idle'), 'idle')
 await sleep(500)
 console.log(`场景1 子代理跳过: ${notifications.length === 0 ? 'PASS' : 'FAIL'}`)
 
-// 场景 2：主 agent idle 后 500ms 又 running（goal 回合）→ 不通知
+// 场景 2：主 agent idle 后很快又 running（goal 回合）→ 不通知
 const a2 = mkAgent('main2', undefined, 'idle')
 emit(a2, 'idle')
-await sleep(500)
+await sleep(100)
 a2.status = 'running'
 await sleep(settleMs + 300)
 console.log(`场景2 goal回合不误报: ${notifications.length === 0 ? 'PASS' : 'FAIL'}`)
@@ -144,4 +144,36 @@ console.log(`场景4 路由已注册: ${inputRoute && toastRoute ? 'PASS' : 'FAI
     res,
   )
   console.log(`场景8 未知会话(说明性): status=${out.status}`)
+}
+
+// ---- v6：对话任务标题 -----------------------------------------------------
+// 场景 9：通知降级日志带出会话标题（session/title 事件折叠）
+{
+  const before = notifications.length
+  const agent9 = {
+    id: 'main9',
+    status: 'idle',
+    session: {
+      header: {},
+      events: [
+        { type: 'user/message', seq: 1, time: 1, data: {} },
+        { type: 'session/title', seq: 2, time: 2, data: { title: '修复 Windows 图标缓存' } },
+      ],
+    },
+  }
+  emit(agent9, 'idle')
+  await sleep(settleMs + 500)
+  const last = notifications[notifications.length - 1]
+  const hasTitle = last && last.includes('[修复 Windows 图标缓存]')
+  console.log(`场景9 通知带对话标题: ${hasTitle ? 'PASS' : 'FAIL'} (${last})`)
+}
+
+// 场景 10：无标题会话 → 通知不带标题前缀（不报错）
+{
+  const before = notifications.length
+  emit(mkAgent('main10', undefined, 'idle'), 'idle')
+  await sleep(settleMs + 500)
+  const last = notifications[notifications.length - 1]
+  const noCrash = last && last.startsWith('[task-notifier] ✓ Task Completed')
+  console.log(`场景10 无标题降级: ${noCrash ? 'PASS' : 'FAIL'} (${last})`)
 }

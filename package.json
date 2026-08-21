@@ -1,7 +1,7 @@
 {
   "name": "dsh-task-complete-notifier",
-  "version": "1.1.0",
-  "description": "DeepSeek Harness 任务完成通知插件：任务真正结束时右下角弹出置顶卡片，可直接在卡片里输入下一条指令，无音频",
+  "version": "1.2.0",
+  "description": "DeepSeek Harness 任务完成通知插件：右下角置顶卡片显示对话标题，可直接输入下一条指令，无音频",
   "type": "module",
   "license": "MIT",
   "keywords": [

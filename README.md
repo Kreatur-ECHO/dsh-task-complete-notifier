@@ -13,6 +13,7 @@ A DeepSeek Harness plugin that pops up a **topmost** dark rounded toast card in 
 - **Solid dark card**: opaque `#181818` background, 12px radius, `#333333` border, drop shadow, 30px margin from the bottom-right corner, 0.3s fadeInUp
 - **Three ways to dismiss**: click "稍后/Later", click outside the card, or wait for the auto-close
 - **⌨️ Reply without switching (v1.1)**: the toast has an input box at the bottom — type your next instruction, hit Enter, and it's delivered to the session's agent via `agent.followup()` (queued as the next turn even if the agent is busy). No need to bring DSH to the foreground
+- **📛 Shows the conversation title (v1.2)**: the toast displays the session's task title (folded from `session/title` events), so you instantly know which task just finished — and which conversation your typed instruction will go to
 - **Queue, never overwrite (v1.1)**: toasts show one at a time. A new completion queues behind the current toast, so an instruction you're typing is never wiped by the next toast — when you submit or dismiss, the next one appears
 - **Focuses for typing**: the toast focuses its input box on show, so you can start typing immediately
 - **Skips subagents**: only notifies when the main task finishes
@@ -155,6 +156,7 @@ A: Both plugin routes (`/task-notifier/toast`, `/task-notifier/input`) sit behin
 | v3 | Host half + `agent/status` + system notification | ✅ precise & topmost, but native styling |
 | v4 | Host half + `agent/status` + Electron topmost card window | ✅ precise + custom card + topmost |
 | v5 | v4 + reply input box + toast queue | ✅ type the next instruction right in the toast; completions queue instead of overwriting |
+| v6 | v5 + conversation title on the toast | ✅ shows which task finished (`session/title` fold) |
 
 ## 📄 License
 
