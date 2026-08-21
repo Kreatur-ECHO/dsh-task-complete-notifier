@@ -1,82 +1,82 @@
-# dsh-task-complete-notifier — DSH任务完成提醒
+# dsh-task-complete-notifier — DSH Task Completion Notifier（DSH任务完成提醒）
 
-[English](./README_EN.md) | 中文
+English | [中文](./README_ZH.md)
 
-DeepSeek Harness 任务完成通知插件：当 agent 一个任务**真正结束**时，在屏幕右下角弹出一张**置顶**的深色圆角卡片。全程无音频，纯 host 半插件，零依赖。
+A DeepSeek Harness plugin that pops up a **topmost** dark rounded toast card in the bottom-right corner of the screen when an agent task **truly finishes**. No audio, host-half only, zero dependencies.
 
-> 适用于 DSH Desktop（Electron 桌面端）。浏览器里用 `dsh web` 的场景会降级为 host 日志（见 FAQ）。
+> Made for DSH Desktop (Electron). Under plain `dsh web` (browser) it degrades to host logs (see FAQ).
 
-## ✨ 特性
+## ✨ Features
 
-- **只弹一次、时机精确**：监听 DSH 的 `agent/status` 事件（`running → idle` 边沿），多回合任务（goal 循环）的中间回合不会误报；任务被新消息打断也不会误报
-- **置顶可见**：通知是独立的 Electron 置顶窗口（`alwaysOnTop`），DSH 窗口在后台、被其他应用挡住时依然可见
-- **实心深色卡片**：不透视背景，深色 `#181818` + 圆角 12px + 边框 `#333333` + 阴影，右下角 30px 边距，fadeInUp 0.3s 淡入
-- **三种关闭方式**：点「Got it」、点卡片外区域、15 秒无操作自动关闭
-- **不抢焦点**：弹出时不打断你正在使用的应用
-- **跳过子代理**：子代理（subagent）任务结束不通知，只通知主任务
-- **无音频**：纯视觉提示
-- **可配置**：文案、延迟、冷却、自动关闭时间、acrylic 效果都可通过 `cordis.patch.yml` 覆盖
+- **Precise timing, fires once**: watches the `agent/status` cordis event (`running → idle` edge). Intermediate turns of multi-turn tasks (goal loops) never fire; a task interrupted by a new message doesn't fire either
+- **Topmost**: the toast is an independent Electron `alwaysOnTop` window — visible even when DSH is in the background or covered by other apps
+- **Solid dark card**: opaque `#181818` background, 12px radius, `#333333` border, drop shadow, 30px margin from the bottom-right corner, 0.3s fadeInUp
+- **Three ways to dismiss**: click "Got it", click outside the card, or wait for the 15s auto-close
+- **No focus stealing**: shows without interrupting the app you're using
+- **Skips subagents**: only notifies when the main task finishes
+- **No audio**: visual-only
+- **Configurable**: text, settle delay, cooldown, auto-close, acrylic — all via `cordis.patch.yml`
 
-## 🖼️ 通知卡片
+## 🖼️ The toast
 
 ```
 ┌──────────────────────────────────────┐
-│ ✓ Task Completed                     │  ← #E5E5E5 加粗 16px
+│ ✓ Task Completed                     │  ← #E5E5E5 bold 16px
 │                                      │
 │ The current DeepSeek Harness task    │  ← #AAAAAA 14px / 1.6
 │ has finished. Please proceed to      │
 │ the next step.                       │
 │                                      │
-│ [ Got it ]                           │  ← #2A2A2A，hover #3D3D3D
+│ [ Got it ]                           │  ← #2A2A2A, hover #3D3D3D
 └──────────────────────────────────────┘
-  背景 #181818（实心）· 圆角 12px · 边框 #333 · 阴影 0 8px 32px
+  bg #181818 (opaque) · radius 12px · border #333 · shadow 0 8px 32px
 ```
 
-## 🔍 工作原理
+## 🔍 How it works
 
-DSH 的 agent 状态机：`running`（任务执行中，包括 goal 多轮任务的每一个 turn）→ `idle`（整个任务结束）。
+DSH's agent state machine: `running` (task executing, including every turn of a multi-turn goal loop) → `idle` (the whole task is done).
 
-插件订阅 cordis 的 `agent/status` 事件（host 侧可靠信号），在 `running → idle` 边沿**延迟 3 秒**确认 agent 没有立刻回到 running（goal 任务的回合之间 goal-round-driver 会快速注入下一轮），确认后创建 Electron 置顶窗口渲染卡片。
+The plugin subscribes to the `agent/status` cordis event (a reliable host-side signal). On the `running → idle` edge it **waits 3 seconds** to confirm the agent doesn't jump straight back to running (goal-round-driver injects the next round quickly between goal turns), then opens an Electron topmost window rendering the card.
 
-开发过程中踩过的坑（详见[开发笔记](#-开发笔记)）：
+Pitfalls we hit along the way (see [Development notes](#-development-notes)):
 
-- ❌ 浏览器 Tampermonkey 脚本 —— Electron 桌面端根本不加载
-- ❌ `session/event` 事件 —— 只在 host 侧存在，client 侧收不到
-- ❌ 回合（turn）结束信号 —— 任务常是多回合连续执行，回合结束 ≠ 任务完成
-- ✅ `agent/status` 的 idle 边沿 —— 「任务真正完成」的精确信号
+- ❌ Browser Tampermonkey script — Electron desktop never loads browser scripts
+- ❌ `session/event` — exists only on the host side, client plugins never receive it
+- ❌ Turn-end signals — tasks often span multiple turns; turn end ≠ task done
+- ✅ The `agent/status` idle edge — the precise "task truly finished" signal
 
-## 📦 安装
+## 📦 Installation
 
-### 方式一：下载 tarball 安装（推荐）
+### Option 1: tarball (recommended)
 
-1. 从 [Releases](https://github.com/Kreatur-ECHO/dsh-task-complete-notifier/releases) 下载 `dsh-task-complete-notifier-1.0.0.tgz`
+1. Download `dsh-task-complete-notifier-1.0.0.tgz` from [Releases](https://github.com/Kreatur-ECHO/dsh-task-complete-notifier/releases)
 
-2. 用 DSH CLI 安装（`<profile>` 换成你的 profile 名，如 `desktop`）：
+2. Install with the DSH CLI (`<profile>` is your profile name, e.g. `desktop`):
 
    ```powershell
    dsh plugin --profile desktop add file:D:\Downloads\dsh-task-complete-notifier-1.0.0.tgz
    ```
 
-   该命令会自动协调 `dsh.profile.bundles` 并安装依赖。
+   The command reconciles `dsh.profile.bundles` and installs dependencies for you.
 
-3. 重启 DSH Desktop。
+3. Restart DSH Desktop.
 
-### 方式二：手动安装
+### Option 2: manual install
 
-1. 解压 tarball 到任意目录（如 `C:\Users\<你>\.dsh\plugins\dsh-task-complete-notifier`）
+1. Extract the tarball anywhere (e.g. `C:\Users\<you>\.dsh\plugins\dsh-task-complete-notifier`)
 
-2. 编辑 `~/.dsh/profiles/desktop/package.json`：
+2. Edit `~/.dsh/profiles/desktop/package.json`:
 
    ```jsonc
    {
      "dependencies": {
-       // ...已有依赖...
-       "dsh-task-complete-notifier": "link:C:/Users/<你>/.dsh/plugins/dsh-task-complete-notifier"
+       // ...existing deps...
+       "dsh-task-complete-notifier": "link:C:/Users/<you>/.dsh/plugins/dsh-task-complete-notifier"
      },
      "dsh": {
        "profile": {
          "bundles": [
-           // ...已有 bundles...
+           // ...existing bundles...
            "dsh-task-complete-notifier"
          ]
        }
@@ -84,56 +84,56 @@ DSH 的 agent 状态机：`running`（任务执行中，包括 goal 多轮任务
    }
    ```
 
-3. 在 profile 目录执行 `pnpm install`，然后重启 DSH Desktop。
+3. Run `pnpm install` inside the profile directory, then restart DSH Desktop.
 
-### 验证
+### Verify
 
-重启后日志出现：
+After restart, the log shows:
 
 ```
 [task-notifier] host half mounted (v4: agent/status + frosted-glass topmost window)
 ```
 
-跑一个任务到结束，右下角应弹出通知卡片。
+Run a task to completion — the toast card should appear in the bottom-right corner.
 
-## ⚙️ 配置
+## ⚙️ Configuration
 
-在 profile 的 `cordis.patch.yml` 里给插件的挂载行加 `config`（id 定向覆盖）：
+Add `config` to the plugin's mount row in your profile's `cordis.patch.yml` (id-targeted override):
 
 ```yaml
 - id: task-complete-notifier
   config:
-    title: '✓ Task Completed'            # 标题
-    body: 'The current DeepSeek Harness task has finished. Please proceed to the next step.'  # 正文
-    settleMs: 3000                        # idle 后确认延迟（防 goal 回合误报）
-    cooldownMs: 10000                     # 两次通知的最小间隔
-    autoCloseMs: 15000                    # 卡片自动关闭时间
-    enableAcrylic: false                  # Windows 11 acrylic 真·模糊背景（与透明窗口组合有兼容坑，慎开）
+    title: '✓ Task Completed'            # title text
+    body: 'The current DeepSeek Harness task has finished. Please proceed to the next step.'  # body text
+    settleMs: 3000                        # confirm delay after idle (guards against goal-round false positives)
+    cooldownMs: 10000                     # minimum gap between toasts
+    autoCloseMs: 15000                    # auto-close timeout
+    enableAcrylic: false                  # Windows 11 acrylic blur (known quirks with transparent windows — use with care)
 ```
 
 ## ❓ FAQ
 
-**Q：纯 `dsh web`（浏览器）能用吗？**
-A：插件核心信号在 host 侧，web 环境也能检测；但 Electron 置顶窗口不可用，会降级为 host 日志（`[task-notifier] ✓ Task Completed — ...`）。要完整效果请用 DSH Desktop。
+**Q: Does it work with plain `dsh web` (browser)?**
+A: Detection works (the signal lives host-side), but the Electron topmost window is unavailable, so it degrades to host logs (`[task-notifier] ✓ Task Completed — ...`). Use DSH Desktop for the full experience.
 
-**Q：卡片出现黑边/黑块？**
-A：个别显卡驱动对透明窗口渲染有问题。当前卡片默认实心 `#181818`；若仍有问题，在 issue 里贴出你的显卡型号。
+**Q: Black edges / blocks around the card?**
+A: A few GPU drivers render transparent windows poorly. The card itself is opaque `#181818`; if issues persist, open an issue with your GPU model.
 
-**Q：任务被用户打断（点停止）会通知吗？**
-A：打断走 `aborted` 路径，不产生正常完成边沿；若打断后 agent 仍回到 idle，会有一次通知（agent 确实停止了）。
+**Q: Does interrupting a task (stop button) notify?**
+A: Interrupts go through the `aborted` path, not the normal completion edge. If the agent still settles back to idle after the interrupt, you get one toast (the agent did stop).
 
-**Q：多个会话同时跑任务，会弹多次吗？**
-A：每个主 agent 任务结束都会触发，但 10 秒内的连续结束只弹一次（cooldown）。
+**Q: Multiple sessions running tasks at once — multiple toasts?**
+A: Each main agent completion triggers, but completions within 10s of each other collapse to one toast (cooldown).
 
-## 🛠️ 开发笔记
+## 🛠️ Development notes
 
-| 版本 | 方案 | 结果 |
+| Version | Approach | Result |
 |---|---|---|
-| v0 | 浏览器 Tampermonkey 脚本 | ❌ Electron 桌面端不加载浏览器脚本 |
-| v1 | client 半 + `session/event` 监听 turn/end | ❌ 该事件只在 host 侧存在，client 收不到 |
-| v2 | client 半 + turnTail 槽位 / running 边沿 | ⚠️ 时灵时不灵、任务没跑完就弹、切会话重复弹、不置顶 |
-| v3 | host 半 + `agent/status` + 系统通知 | ✅ 时机精确、置顶；但样式是系统原生 |
-| v4 | host 半 + `agent/status` + Electron 置顶卡片窗口 | ✅ 时机精确 + 自定义卡片 + 置顶 |
+| v0 | Browser Tampermonkey userscript | ❌ Electron desktop never loads it |
+| v1 | Client half + `session/event` listening for turn/end | ❌ event exists host-side only; client never receives it |
+| v2 | Client half + turnTail slot / running edge | ⚠️ flaky, fired mid-task, re-fired on session switch, not topmost |
+| v3 | Host half + `agent/status` + system notification | ✅ precise & topmost, but native styling |
+| v4 | Host half + `agent/status` + Electron topmost card window | ✅ precise + custom card + topmost |
 
 ## 📄 License
 

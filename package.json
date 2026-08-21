@@ -1,7 +1,7 @@
-{
+﻿{
   "name": "dsh-task-complete-notifier",
   "version": "1.0.0",
-  "description": "DeepSeek Harness 任务完成通知插件：任务真正结束时在屏幕右下角弹出置顶的深色圆角卡片，无音频",
+  "description": "DeepSeek Harness 浠诲姟瀹屾垚閫氱煡鎻掍欢锛氫换鍔＄湡姝ｇ粨鏉熸椂鍦ㄥ睆骞曞彸涓嬭寮瑰嚭缃《鐨勬繁鑹插渾瑙掑崱鐗囷紝鏃犻煶棰?,
   "type": "module",
   "license": "MIT",
   "keywords": [
