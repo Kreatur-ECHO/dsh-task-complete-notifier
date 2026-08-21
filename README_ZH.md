@@ -11,11 +11,13 @@ DeepSeek Harness 任务完成通知插件：当 agent 一个任务**真正结束
 - **只弹一次、时机精确**：监听 DSH 的 `agent/status` 事件（`running → idle` 边沿），多回合任务（goal 循环）的中间回合不会误报；任务被新消息打断也不会误报
 - **置顶可见**：通知是独立的 Electron 置顶窗口（`alwaysOnTop`），DSH 窗口在后台、被其他应用挡住时依然可见
 - **实心深色卡片**：不透视背景，深色 `#181818` + 圆角 12px + 边框 `#333333` + 阴影，右下角 30px 边距，fadeInUp 0.3s 淡入
-- **三种关闭方式**：点「Got it」、点卡片外区域、15 秒无操作自动关闭
-- **不抢焦点**：弹出时不打断你正在使用的应用
+- **三种关闭方式**：点「稍后」、点卡片外区域、超时自动关闭
+- **⌨️ 卡片内直接下达下一条指令（v1.1）**：卡片底部有输入框，输入下一条指令回车发送，经 `agent.followup()` 直达刚完成任务的那个会话——无需切回 DSH 界面；agent 正在忙时指令自动排到下一个 turn
+- **排队不覆盖（v1.1）**：通知一次只显示一个。当前卡片还在（你可能正在输入）时，新完成的任务排队等待，你输到一半的内容绝不会被新通知冲掉；提交或关闭当前卡片后自动弹出下一个
+- **输入自动聚焦**：卡片弹出即聚焦输入框，可直接打字
 - **跳过子代理**：子代理（subagent）任务结束不通知，只通知主任务
 - **无音频**：纯视觉提示
-- **可配置**：文案、延迟、冷却、自动关闭时间、acrylic 效果都可通过 `cordis.patch.yml` 覆盖
+- **可配置**：文案、延迟、冷却、自动关闭时间、占位符、按钮文字都可通过 `cordis.patch.yml` 覆盖
 
 ## 🖼️ 通知卡片
 
@@ -27,10 +29,20 @@ DeepSeek Harness 任务完成通知插件：当 agent 一个任务**真正结束
 │ has finished. Please proceed to      │
 │ the next step.                       │
 │                                      │
-│ [ Got it ]                           │  ← #2A2A2A，hover #3D3D3D
+│ [ 输入下一步指令，Enter 发送…    ]     │  ← 输入框，回车发送
+│ [ 发送 ]  [ 稍后 ]                    │  ← 提交 / 关闭
 └──────────────────────────────────────┘
   背景 #181818（实心）· 圆角 12px · 边框 #333 · 阴影 0 8px 32px
 ```
+
+## ⌨️ 在卡片里直接下达下一条指令
+
+任务完成时卡片弹出，输入框自动聚焦——直接输入下一条指令，回车（或点「发送」）：
+
+- 指令通过 `agent.followup()` 送达**刚完成任务的那个会话**（与 DSH 自己的 prompt 同一条注入路径）
+- 如果该 agent 已经在跑别的任务，你的指令自动排队为它的下一个 turn
+- 如果会话已不存在，卡片内联显示错误并保持打开，你输入的内容不会丢
+- **多个任务同时结束？** 通知一次只显示一个：当前卡片在屏（你可能正在输入）时，后续完成的通知进入队列（最多 5 条，超出丢最旧）。提交或关闭当前卡片后才显示下一个——输到一半的指令绝不会被覆盖
 
 ## 🔍 工作原理
 
@@ -91,7 +103,7 @@ DSH 的 agent 状态机：`running`（任务执行中，包括 goal 多轮任务
 重启后日志出现：
 
 ```
-[task-notifier] host half mounted (v4: agent/status + frosted-glass topmost window)
+[task-notifier] host half mounted (v5: agent/status + input-capable topmost card + queue)
 ```
 
 跑一个任务到结束，右下角应弹出通知卡片。
@@ -107,8 +119,10 @@ DSH 的 agent 状态机：`running`（任务执行中，包括 goal 多轮任务
     body: 'The current DeepSeek Harness task has finished. Please proceed to the next step.'  # 正文
     settleMs: 3000                        # idle 后确认延迟（防 goal 回合误报）
     cooldownMs: 10000                     # 两次通知的最小间隔
-    autoCloseMs: 15000                    # 卡片自动关闭时间
-    enableAcrylic: false                  # Windows 11 acrylic 真·模糊背景（与透明窗口组合有兼容坑，慎开）
+    autoCloseMs: 60000                    # 卡片自动关闭时间
+    placeholder: '输入下一步指令，Enter 发送…'   # 输入框占位符
+    sendLabel: '发送'                      # 发送按钮文字
+    laterLabel: '稍后'                     # 关闭按钮文字
 ```
 
 ## ❓ FAQ
@@ -123,7 +137,13 @@ A：个别显卡驱动对透明窗口渲染有问题。当前卡片默认实心 
 A：打断走 `aborted` 路径，不产生正常完成边沿；若打断后 agent 仍回到 idle，会有一次通知（agent 确实停止了）。
 
 **Q：多个会话同时跑任务，会弹多次吗？**
-A：每个主 agent 任务结束都会触发，但 10 秒内的连续结束只弹一次（cooldown）。
+A：通知一次只显示一个，其余排队（最多 5 条，超出丢最旧）。提交或关闭当前卡片后自动弹出下一个——你输到一半的指令绝不会被覆盖。
+
+**Q：我在卡片里输入的指令发到哪里？**
+A：发给刚完成任务的那个会话（卡片与该会话绑定），经 `agent.followup()` 注入——agent 正在忙时作为下一个 turn 执行；会话已不存在时卡片内联显示错误。
+
+**Q：输入路由安全吗？**
+A：两条插件路由（`/task-notifier/toast`、`/task-notifier/input`）都在与 DSH `/api` 网关相同的 loopback + 同源信任栅栏之后，跨站页面与非 loopback 主机一律 403 拒绝。
 
 ## 🛠️ 开发笔记
 
@@ -134,6 +154,7 @@ A：每个主 agent 任务结束都会触发，但 10 秒内的连续结束只�
 | v2 | client 半 + turnTail 槽位 / running 边沿 | ⚠️ 时灵时不灵、任务没跑完就弹、切会话重复弹、不置顶 |
 | v3 | host 半 + `agent/status` + 系统通知 | ✅ 时机精确、置顶；但样式是系统原生 |
 | v4 | host 半 + `agent/status` + Electron 置顶卡片窗口 | ✅ 时机精确 + 自定义卡片 + 置顶 |
+| v5 | v4 + 输入框 + 通知队列 | ✅ 卡片内直接下达下一条指令；多任务结束排队不覆盖 |
 
 ## 📄 License
 
