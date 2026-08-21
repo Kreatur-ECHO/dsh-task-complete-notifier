@@ -19,7 +19,7 @@
 import * as nodeCrypto from 'node:crypto'
 import { createRequire } from 'node:module'
 
-export const inject = []
+export const inject = ['webServer', 'agents']
 
 /** 生成消息 id：Node 20+ 有 randomUUID；极端环境回退到时间戳+随机串。 */
 function newMessageId() {
@@ -321,20 +321,12 @@ export function apply(ctx, config = {}) {
   const soundToggleTitle =
     typeof config.soundToggleTitle === 'string' ? config.soundToggleTitle : '音效开关'
 
-  // 可选服务：全部通过 ctx.get 获取（不写进 inject），任何一个缺失都优雅降级，
-  // 插件在最小部署（无 webServer / 无 agents / 非 Electron）下也能激活。
-  let webServer
-  try {
-    webServer = ctx.get('webServer')
-  } catch {
-    webServer = undefined
-  }
-  let agents
-  try {
-    agents = ctx.get('agents')
-  } catch {
-    agents = undefined
-  }
+  // 服务通过 inject 声明（ctx.webServer / ctx.agents 直接可用）。
+  // 注意：不要用 ctx.get('xxx') 在这里取服务——DSH 的 isolate 语义下未 inject
+  // 的服务 get 不到（v1.3 的教训，导致 webServer/agents 全 false）。
+  // inject 声明的核心服务缺失时插件 PENDING（不激活），而非静默失效。
+  const webServer = ctx.webServer
+  const agents = ctx.agents
 
   // Electron 内置模块（Electron 主进程内可用；纯 dsh web 为 null）
   let electron = null
