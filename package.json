@@ -1,0 +1,43 @@
+{
+  "name": "dsh-task-complete-notifier",
+  "version": "1.0.0",
+  "description": "DeepSeek Harness 任务完成通知插件：任务真正结束时在屏幕右下角弹出置顶的深色圆角卡片，无音频",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "notification",
+    "task-complete",
+    "toast",
+    "electron"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kreatur-ECHO/dsh-task-complete-notifier.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Kreatur-ECHO/dsh-task-complete-notifier/issues"
+  },
+  "exports": {
+    ".": "./dsh/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dsh",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

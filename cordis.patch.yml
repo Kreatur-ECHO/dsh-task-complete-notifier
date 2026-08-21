@@ -1,0 +1,6 @@
+# dsh-task-complete-notifier bundle patch
+# 挂载 host 半（loader 通过 package name -> exports["."] 导入 dsh/index.js）。
+# 通知逻辑完全在 client 半，host 半只做最小占位。
+- insert:
+    - id: task-complete-notifier
+      name: 'dsh-task-complete-notifier'
