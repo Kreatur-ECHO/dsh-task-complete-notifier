@@ -1,4 +1,4 @@
-// dsh-task-complete-notifier — host half (v9: toast + input + task title + custom sound file)
+// dsh-task-complete-notifier — host half (v10: toast + input + title + sound + native fallback)
 //
 // 检测信号：agent/status 事件 running→idle 边沿 + 3 秒确认，任务真正结束时触发。
 //
@@ -9,6 +9,13 @@
 // v9：音效支持自定义音频文件——config.soundFile 指定本地音频路径，host 半
 // 经 /task-notifier/sound 路由 serve，卡片用 <audio> 播放；未配置时回退到
 // Web Audio 合成"叮"。开关状态存 localStorage 跨通知持久。
+//
+// v10：DSH Desktop 2.0.11+ 默认把 host 跑在 Electron utility process（isolated
+// host，DSH_DESKTOP_ISOLATED_HOST ≠ '0'）里，那里 require('electron') 拿不到
+// BrowserWindow → 自绘卡片不可用，旧行为是静默降级成一行日志（看起来就是
+// 「没响应」）。现在改为：先经 ctx.reflect.get('desktopRuntime', false) 取 DSH
+// 原生通知服务发系统通知（notifyAttention），仍不行才降级日志。想让 host 回到
+// Electron 主进程、恢复自绘卡片，设 DSH_DESKTOP_ISOLATED_HOST=0 再重启。
 //
 // 通知窗口加载插件自带的 /task-notifier/toast 页面（同源），提交走
 // /task-notifier/input 路由（loopback + 同源 fence）。
@@ -365,7 +372,7 @@ export function apply(ctx, config = {}) {
   const webServer = ctx.webServer
   const agents = ctx.agents
 
-  // Electron 内置模块（Electron 主进程内可用；纯 dsh web 为 null）
+  // Electron 内置模块（Electron 主进程内可用；纯 dsh web 与 isolated host 为 null）
   let electron = null
   try {
     const nodeRequire = createRequire(import.meta.url)
@@ -374,11 +381,27 @@ export function apply(ctx, config = {}) {
     electron = null
   }
 
+  // 可选服务探测：未 inject 的服务直接 ctx.desktopRuntime 会抛
+  // `cannot get property "..." without inject`（cordis 4 的 ctx 代理语义），
+  // 必须走 ctx.reflect.get(name, false) 这个 inject-free 读法。
+  // desktopRuntime 只在 DSH Desktop 里存在（插件 profile 在纯 dsh web 下没有）。
+  let desktopRuntime = null
+  try {
+    const reflect = ctx.reflect
+    const runtime =
+      reflect && typeof reflect.get === 'function' ? reflect.get('desktopRuntime', false) : null
+    if (runtime && typeof runtime.notifyAttention === 'function') desktopRuntime = runtime
+  } catch {
+    desktopRuntime = null
+  }
+
   const port =
     webServer && typeof webServer.port === 'number' && webServer.port > 0 ? webServer.port : 0
   const baseUrl = `http://127.0.0.1:${port}`
   const inputAvailable = !!(agents && typeof agents.get === 'function')
   const windowCapable = !!(electron && typeof electron.BrowserWindow === 'function') && port > 0
+  // 没有自绘卡片能力时的兜底：DSH 原生系统通知（isolated host 下唯一可用的可见通知）
+  const nativeNotifyCapable = !windowCapable && !!desktopRuntime
 
   function log(line) {
     try {
@@ -577,7 +600,26 @@ export function apply(ctx, config = {}) {
 
   function showWindow(item) {
     if (!windowCapable) {
-      // 无 Electron 或端口无效（纯 dsh web / 特殊部署）：降级日志，不进队列
+      // 无 Electron 窗口能力（纯 dsh web，或 DSH Desktop 2.0.11+ 的 isolated host
+      // utility process，那里 require('electron') 没有 BrowserWindow）。
+      // 先试 DSH 原生系统通知，再不行才降级为一行日志。
+      // 这条路径不进队列：原生通知没有输入框，不需要为保护正在输入的内容而排队。
+      if (nativeNotifyCapable) {
+        try {
+          desktopRuntime.notifyAttention({
+            title: item.taskTitle ? `${item.title} · ${item.taskTitle}` : item.title,
+            body: item.body,
+          })
+          log(
+            `[task-notifier] ${item.title}${item.taskTitle ? ` [${item.taskTitle}]` : ''} — native notification sent`,
+          )
+          return
+        } catch (error) {
+          log(
+            `[task-notifier] native notification failed: ${String(error && error.message ? error.message : error)}`,
+          )
+        }
+      }
       log(`[task-notifier] ${item.taskTitle ? `[${item.taskTitle}] ` : ''}${item.title} — ${item.body}`)
       return
     }
@@ -719,5 +761,5 @@ export function apply(ctx, config = {}) {
     }
   })
 
-  log(`[task-notifier] host half mounted (v9: env webServer=${!!webServer} agents=${inputAvailable} electron=${!!(electron && typeof electron.BrowserWindow === 'function')} port=${port} sound=${soundEnabled ? 'on' : 'off'}${soundFile ? ` file=${soundFile}` : ''})`)
+  log(`[task-notifier] host half mounted (v10: env webServer=${!!webServer} agents=${inputAvailable} electron=${!!(electron && typeof electron.BrowserWindow === 'function')} nativeNotify=${!!desktopRuntime} port=${port} sound=${soundEnabled ? 'on' : 'off'}${soundFile ? ` file=${soundFile}` : ''})`)
 }

@@ -4,12 +4,13 @@ English | [中文](./README_ZH.md)
 
 A DeepSeek Harness plugin that pops up a **topmost** dark rounded toast card in the bottom-right corner of the screen when an agent task **truly finishes**. Host-half only, zero runtime dependencies, with a built-in ding (or your own sound file).
 
-> Made for DSH Desktop (Electron). Under plain `dsh web` (browser) it degrades to host logs (see FAQ).
+> Made for DSH Desktop. Under the isolated host (2.0.11+) it falls back to a native system notification; under plain `dsh web` it degrades to host logs (see FAQ).
 
 ## ✨ Features
 
 - **Precise timing, fires once**: watches the `agent/status` cordis event (`running → idle` edge). Intermediate turns of multi-turn tasks (goal loops) never fire; a task interrupted by a new message doesn't fire either
 - **Topmost**: the toast is an independent Electron `alwaysOnTop` window — visible even when DSH is in the background or covered by other apps
+- **Never silently dead (v1.5.3)**: if the Electron window APIs aren't reachable — e.g. DSH Desktop 2.0.11+ runs the plugin host in an isolated utility process — the plugin sends DSH's own **native system notification** instead of only writing a log line (see FAQ)
 - **Solid dark card**: opaque `#181818` background, 12px radius, `#333333` border, drop shadow, 30px margin from the bottom-right corner, 0.3s fadeInUp
 - **Three ways to dismiss**: click "稍后/Later", click outside the card, or wait for the auto-close
 - **⌨️ Reply without switching (v1.1)**: the toast has an input box at the bottom — type your next instruction, hit Enter, and it's delivered to the session's agent via `agent.followup()` (queued as the next turn even if the agent is busy). No need to bring DSH to the foreground
@@ -63,12 +64,12 @@ Pitfalls we hit along the way (see [Development notes](#-development-notes)):
 
 ### Option 1: tarball (recommended)
 
-1. Download `dsh-task-complete-notifier-1.5.2.tgz` from [Releases](https://github.com/Kreatur-ECHO/dsh-task-complete-notifier/releases)
+1. Download `dsh-task-complete-notifier-1.5.3.tgz` from [Releases](https://github.com/Kreatur-ECHO/dsh-task-complete-notifier/releases)
 
 2. Install with the DSH CLI (`<profile>` is your profile name, e.g. `desktop`):
 
    ```powershell
-   dsh plugin --profile desktop add file:D:\Downloads\dsh-task-complete-notifier-1.5.2.tgz
+   dsh plugin --profile desktop add file:D:\Downloads\dsh-task-complete-notifier-1.5.3.tgz
    ```
 
    The command reconciles `dsh.profile.bundles` and installs dependencies for you.
@@ -83,7 +84,7 @@ The bundled `install.ps1` does the whole manual install for you — copies the p
 # extract the tarball, then inside the extracted folder:
 powershell -ExecutionPolicy Bypass -File install.ps1
 # or from a tarball directly / another profile:
-powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\dsh-task-complete-notifier-1.5.2.tgz
+powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\dsh-task-complete-notifier-1.5.3.tgz
 ```
 
 ### Option 3: manual install
@@ -116,7 +117,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\ds
 After restart, the log shows:
 
 ```
-[task-notifier] host half mounted (v9: env webServer=true agents=true electron=true port=61997)
+[task-notifier] host half mounted (v10: env webServer=true agents=true electron=true nativeNotify=false port=61997 sound=on)
 ```
 
 Run a task to completion — the toast card should appear in the bottom-right corner.
@@ -126,7 +127,7 @@ Run a task to completion — the toast card should appear in the bottom-right co
 Every dependency is **optional** — the plugin activates even in a minimal deployment and degrades gracefully. Its mount log is a built-in environment self-check:
 
 ```
-[task-notifier] host half mounted (v9: env webServer=true agents=true electron=true port=61997)
+[task-notifier] host half mounted (v10: env webServer=true agents=true electron=true nativeNotify=false port=61997 sound=on)
 ```
 
 | Capability | Used for | When missing |
@@ -134,7 +135,8 @@ Every dependency is **optional** — the plugin activates even in a minimal depl
 | `agent/status` event (host) | completion detection | always present in DSH — required in practice |
 | `webServer` service | `/task-notifier/*` routes | routes skipped; toast degrades to host logs |
 | `agents` service + `agent.followup` | typing instructions into the toast | input box hidden from the card; detection still works |
-| Electron (`desktopRuntime`) | topmost card window | toast degrades to host logs (plain `dsh web`) |
+| Electron main process (`require('electron')`) | topmost custom card window | falls back to a native system notification |
+| `desktopRuntime` service | native system notification (fallback) | toast degrades to host logs (plain `dsh web`) |
 | `session/title` events | task title on the card | title row simply hidden |
 
 Runtime requirements: **Node ≥ 20**, DSH with the agent loop (rc.6+ recommended for `agent.followup`). Zero runtime npm dependencies.
@@ -204,6 +206,14 @@ The host half serves that file to the card over the same-origin `/task-notifier/
 
 ## ❓ FAQ
 
+**Q: DSH Desktop 2.0.11+ — the card stopped appearing, only a log line?**
+A: DSH Desktop 2.0.11 moved the plugin host into an isolated Electron **utility process** (`DSH_DESKTOP_ISOLATED_HOST`, on by default). There `require('electron')` can't reach `BrowserWindow`, so the custom card can't be created — the mount log shows `electron=false`. Since v1.5.3 the plugin detects this and sends DSH's own **native system notification** (`desktopRuntime.notifyAttention`) instead, so you still get a visible topmost popup (without the input box / custom sound). To get the **full custom card** back, boot the host in the Electron main process again:
+
+```powershell
+setx DSH_DESKTOP_ISOLATED_HOST 0     # then restart DSH Desktop
+setx DSH_DESKTOP_ISOLATED_HOST ""    # to undo (also needs a restart)
+```
+
 **Q: Does it work with plain `dsh web` (browser)?**
 A: Detection works (the signal lives host-side), but the Electron topmost window is unavailable, so it degrades to host logs (`[task-notifier] ✓ Task Completed — ...`). Use DSH Desktop for the full experience.
 
@@ -236,6 +246,7 @@ A: Both plugin routes (`/task-notifier/toast`, `/task-notifier/input`) sit behin
 | v7 | v6 + ding sound with per-card toggle | ✅ audible cue; toggle persists across toasts |
 | v8 | v7 + soften the ding (660Hz triangle + fade-in) | ✅ pleasant, not harsh |
 | v9 | v8 + custom sound file + `soundVolume` + 0.1s early trigger | ✅ your own audio, volume 0–1, no perceived delay |
+| v10 | v9 + isolated-host fallback: native notification via `desktopRuntime.notifyAttention` | ✅ visible again on DSH Desktop 2.0.11+ (or set `DSH_DESKTOP_ISOLATED_HOST=0` for the full card) |
 
 ## 📄 License
 

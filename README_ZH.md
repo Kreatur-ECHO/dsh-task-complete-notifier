@@ -4,12 +4,13 @@
 
 DeepSeek Harness 任务完成通知插件：当 agent 一个任务**真正结束**时，在屏幕右下角弹出一张**置顶**的深色圆角卡片。纯 host 半插件，零运行时依赖，内置「叮」声（也可换自己的音效文件）。
 
-> 适用于 DSH Desktop（Electron 桌面端）。浏览器里用 `dsh web` 的场景会降级为 host 日志（见 FAQ）。
+> 适用于 DSH Desktop。2.0.11+ 的 isolated host 下会兜底为**系统原生通知**；浏览器里用 `dsh web` 的场景降级为 host 日志（见 FAQ）。
 
 ## ✨ 特性
 
 - **只弹一次、时机精确**：监听 DSH 的 `agent/status` 事件（`running → idle` 边沿），多回合任务（goal 循环）的中间回合不会误报；任务被新消息打断也不会误报
 - **置顶可见**：通知是独立的 Electron 置顶窗口（`alwaysOnTop`），DSH 窗口在后台、被其他应用挡住时依然可见
+- **绝不静默失效（v1.5.3）**：拿不到 Electron 窗口能力时——例如 DSH Desktop 2.0.11+ 把插件 host 跑在 isolated utility process 里——改为调用 DSH 自己的**系统原生通知**，而不是只写一行日志（见 FAQ）
 - **实心深色卡片**：不透视背景，深色 `#181818` + 圆角 12px + 边框 `#333333` + 阴影，右下角 30px 边距，fadeInUp 0.3s 淡入
 - **三种关闭方式**：点「稍后」、点卡片外区域、超时自动关闭
 - **⌨️ 卡片内直接下达下一条指令（v1.1）**：卡片底部有输入框，输入下一条指令回车发送，经 `agent.followup()` 直达刚完成任务的那个会话——无需切回 DSH 界面；agent 正在忙时指令自动排到下一个 turn
@@ -63,12 +64,12 @@ DSH 的 agent 状态机：`running`（任务执行中，包括 goal 多轮任务
 
 ### 方式一：下载 tarball 安装（推荐）
 
-1. 从 [Releases](https://github.com/Kreatur-ECHO/dsh-task-complete-notifier/releases) 下载 `dsh-task-complete-notifier-1.5.2.tgz`
+1. 从 [Releases](https://github.com/Kreatur-ECHO/dsh-task-complete-notifier/releases) 下载 `dsh-task-complete-notifier-1.5.3.tgz`
 
 2. 用 DSH CLI 安装（`<profile>` 换成你的 profile 名，如 `desktop`）：
 
    ```powershell
-   dsh plugin --profile desktop add file:D:\Downloads\dsh-task-complete-notifier-1.5.2.tgz
+   dsh plugin --profile desktop add file:D:\Downloads\dsh-task-complete-notifier-1.5.3.tgz
    ```
 
    该命令会自动协调 `dsh.profile.bundles` 并安装依赖。
@@ -83,7 +84,7 @@ DSH 的 agent 状态机：`running`（任务执行中，包括 goal 多轮任务
 # 解压 tarball 后，在解压目录里运行：
 powershell -ExecutionPolicy Bypass -File install.ps1
 # 或直接从 tarball 安装 / 指定 profile：
-powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\dsh-task-complete-notifier-1.5.2.tgz
+powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\dsh-task-complete-notifier-1.5.3.tgz
 ```
 
 ### 方式三：手动安装
@@ -116,7 +117,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\ds
 重启后日志出现：
 
 ```
-[task-notifier] host half mounted (v9: env webServer=true agents=true electron=true port=61997)
+[task-notifier] host half mounted (v10: env webServer=true agents=true electron=true nativeNotify=false port=61997 sound=on)
 ```
 
 跑一个任务到结束，右下角应弹出通知卡片。
@@ -126,7 +127,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\ds
 所有依赖都是**可选的**——最小部署下插件也能激活并优雅降级。挂载日志就是内置的环境自检：
 
 ```
-[task-notifier] host half mounted (v9: env webServer=true agents=true electron=true port=61997)
+[task-notifier] host half mounted (v10: env webServer=true agents=true electron=true nativeNotify=false port=61997 sound=on)
 ```
 
 | 能力 | 用途 | 缺失时 |
@@ -134,7 +135,8 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Profile web -Tarball D:\ds
 | `agent/status` 事件（host 侧） | 任务完成检测 | DSH 必有，实际必需 |
 | `webServer` 服务 | `/task-notifier/*` 路由 | 跳过路由，通知降级为 host 日志 |
 | `agents` 服务 + `agent.followup` | 卡片内输入指令 | 卡片隐藏输入框，检测照常 |
-| Electron（`desktopRuntime`） | 置顶卡片窗口 | 通知降级为 host 日志（纯 `dsh web`） |
+| Electron 主进程（`require('electron')`） | 自绘置顶卡片窗口 | 兜底为系统原生通知 |
+| `desktopRuntime` 服务 | 系统原生通知（兜底） | 通知降级为 host 日志（纯 `dsh web`） |
 | `session/title` 事件 | 卡片显示任务标题 | 标题行隐藏 |
 
 运行要求：**Node ≥ 20**、带 agent loop 的 DSH（`agent.followup` 建议 rc.6+）。零运行时 npm 依赖。
@@ -204,6 +206,14 @@ host 半通过同源的 `/task-notifier/sound` 路由（loopback 栅栏内）把
 
 ## ❓ FAQ
 
+**Q：DSH Desktop 2.0.11+ 之后卡片不弹了，只剩一行日志？**
+A：DSH Desktop 2.0.11 把插件 host 移进了 Electron 的 isolated **utility process**（`DSH_DESKTOP_ISOLATED_HOST`，默认开启）。那里 `require('electron')` 拿不到 `BrowserWindow`，自绘卡片无法创建——挂载日志会显示 `electron=false`。从 v1.5.3 起插件会检测到这种情况，改发 DSH 自己的**系统原生通知**（`desktopRuntime.notifyAttention`），所以仍然能看到置顶弹窗（但没有输入框和自定义音效）。想恢复**完整的自绘卡片**，让 host 回到 Electron 主进程即可：
+
+```powershell
+setx DSH_DESKTOP_ISOLATED_HOST 0     # 然后重启 DSH Desktop
+setx DSH_DESKTOP_ISOLATED_HOST ""    # 撤销（同样需要重启）
+```
+
 **Q：纯 `dsh web`（浏览器）能用吗？**
 A：插件核心信号在 host 侧，web 环境也能检测；但 Electron 置顶窗口不可用，会降级为 host 日志（`[task-notifier] ✓ Task Completed — ...`）。要完整效果请用 DSH Desktop。
 
@@ -236,6 +246,7 @@ A：两条插件路由（`/task-notifier/toast`、`/task-notifier/input`）都�
 | v7 | v6 + 「叮」声 + 卡片内开关 | ✅ 有声提示；开关跨通知持久 |
 | v8 | v7 + 柔化「叮」声（660Hz 三角波 + 渐入） | ✅ 悦耳不刺耳 |
 | v9 | v8 + 自定义音效文件 + `soundVolume` + 提前 0.1s 触发 | ✅ 用自己的音频、音量 0–1、无感知延迟 |
+| v10 | v9 + isolated host 兜底：经 `desktopRuntime.notifyAttention` 发系统原生通知 | ✅ 在 DSH Desktop 2.0.11+ 恢复可见通知（设 `DSH_DESKTOP_ISOLATED_HOST=0` 可恢复完整卡片） |
 
 ## 📄 License
 

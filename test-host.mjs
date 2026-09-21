@@ -201,3 +201,85 @@ console.log(`场景4 路由已注册: ${inputRoute && toastRoute ? 'PASS' : 'FAI
     && html.includes('localStorage')
   console.log(`场景11 音效元素存在: ${hasSound ? 'PASS' : 'FAIL'} (status=${out.status})`)
 }
+
+// ---- v10：isolated host 原生通知兜底 -------------------------------------
+// 场景 12：DSH Desktop 2.0.11+ 默认把 host 跑在 Electron utility process 里，
+// require('electron') 拿不到 BrowserWindow（electron=false）→ 自绘卡片不可用。
+// 此时若存在 desktopRuntime 服务，应发系统原生通知（notifyAttention），
+// 而不是像旧版那样只写一行日志（用户视角就是「没响应」）。
+{
+  const nativeNotifications = []
+  const logged = []
+  const ctx12 = {
+    // 模拟 cordis 4 的 inject-free 读法：ctx.reflect.get(name, false)
+    reflect: {
+      get(name) {
+        if (name === 'desktopRuntime') {
+          return { notifyAttention(value) { nativeNotifications.push(value) } }
+        }
+        return undefined
+      },
+    },
+    on(name, fn) { ctx12.events[name] = fn },
+    effect(fn) {
+      const disposer = fn()
+      ctx12.disposers.push(typeof disposer === 'function' ? disposer : () => {})
+    },
+    webServer: { port: 61997, register() { return () => {} } },
+    agents: { get() { return { followup() {} } } },
+    events: {},
+    disposers: [],
+    logger: { info(line) { logged.push(line) } },
+  }
+  apply(ctx12, { settleMs: 100 })
+
+  const mountLog = logged.find((l) => l.includes('host half mounted')) || ''
+  const mountOk =
+    mountLog.includes('v10') && mountLog.includes('electron=false') && mountLog.includes('nativeNotify=true')
+
+  ctx12.events['agent/status']({
+    agent: { id: 'n1', status: 'idle', session: { header: {} } },
+    status: 'idle',
+  })
+  await sleep(400)
+
+  const sent =
+    nativeNotifications.length === 1
+    && nativeNotifications[0].title === '✓ Task Completed'
+    && typeof nativeNotifications[0].body === 'string'
+  const loggedNative = logged.some((l) => l.includes('native notification sent'))
+  const noPlainFallback = !logged.some((l) => l.includes('Please proceed to the next step'))
+  console.log(
+    `场景12 isolated host 原生通知兜底: ${mountOk && sent && loggedNative && noPlainFallback ? 'PASS' : 'FAIL'} `
+    + `(mount=${mountLog}, native=${JSON.stringify(nativeNotifications)})`,
+  )
+}
+
+// 场景 13：既无 Electron 也无 desktopRuntime（纯 dsh web）→ 仍降级为日志，不抛错
+{
+  const logged = []
+  const ctx13 = {
+    reflect: { get() { return undefined } },
+    on(name, fn) { ctx13.events[name] = fn },
+    effect(fn) {
+      const disposer = fn()
+      ctx13.disposers.push(typeof disposer === 'function' ? disposer : () => {})
+    },
+    webServer: { port: 61997, register() { return () => {} } },
+    agents: { get() { return { followup() {} } } },
+    events: {},
+    disposers: [],
+    logger: { info(line) { logged.push(line) } },
+  }
+  apply(ctx13, { settleMs: 100 })
+  ctx13.events['agent/status']({
+    agent: { id: 'n2', status: 'idle', session: { header: {} } },
+    status: 'idle',
+  })
+  await sleep(400)
+  const mountLog = logged.find((l) => l.includes('host half mounted')) || ''
+  const fallback = logged.some((l) => l.includes('Please proceed to the next step'))
+  console.log(
+    `场景13 纯 web 环境降级日志: ${mountLog.includes('nativeNotify=false') && fallback ? 'PASS' : 'FAIL'} (mount=${mountLog})`,
+  )
+}
